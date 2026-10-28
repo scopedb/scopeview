@@ -25,13 +25,14 @@ bunx scopeview --help
 
 :::
 
-To run without adding a project dependency:
+To run without adding a project dependency, confirm installation if npm prompts:
 
 ::: code-group
 
 ```sh [npm]
-npx --yes @scopedb/scopeview example bar > chart.json
-npx --yes @scopedb/scopeview render chart.json --output chart.html
+npx @scopedb/scopeview --help
+npx @scopedb/scopeview example bar > chart.json
+npx @scopedb/scopeview render chart.json --output chart.html
 ```
 
 ```sh [pnpm]
