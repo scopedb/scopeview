@@ -446,17 +446,18 @@ export class ChartRuntime<Source = ResultRow>
             ? 'previous'
             : 'next';
       const target = this.session.next(key);
-      if (target) this.options.onNavigate?.(target);
       this.session.inspect(target?.key ?? null, false, true);
+      if (target) this.options.onNavigate?.(target);
     } else if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       const target = this.session.active ?? this.session.next('Home');
-      if (target) this.options.onNavigate?.(target);
       this.session.inspect(target?.key ?? null, true, true);
+      if (target) this.options.onNavigate?.(target);
     } else if (event.key === 'Escape') {
       event.preventDefault();
       this.session.clearInspection();
     } else return;
+    if (this.signal.aborted) return;
     this.focus(this.session.active);
     this.announce();
     this.options.onInspect?.(this.session.active, null, this.session.pinned);

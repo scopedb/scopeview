@@ -54,12 +54,33 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
   #reported = { inspect: empty(), select: empty() };
   #versions = { inspect: 0, select: 0 };
   #closed = false;
+  #delivering = false;
+  #pending: (() => boolean)[] = [];
 
   constructor(private readonly read: () => InspectionState<Source, Snapshot>) {}
 
   /** Cancel captured work without forgetting the state already delivered to the host. */
   invalidate(channel?: InspectionChannel) {
     for (const name of channel ? [channel] : channels) this.#versions[name]++;
+  }
+
+  /** Finish the current broadcast before notifying observers of a nested state change. */
+  #deliver(send: () => boolean): boolean {
+    if (this.#delivering) {
+      this.#pending.push(send);
+      return true;
+    }
+    this.#delivering = true;
+    try {
+      return send();
+    } finally {
+      try {
+        for (const pending of this.#pending) pending();
+      } finally {
+        this.#pending.length = 0;
+        this.#delivering = false;
+      }
+    }
   }
 
   capture() {
@@ -98,18 +119,20 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
         deliver: (value: (typeof values)[InspectionChannel], snapshot: Snapshot | null) => void,
         options: { force?: boolean; before?(): void } = {}
       ): boolean => {
-        if (
-          !current(channel) ||
-          (!options.force && same(identities[channel], this.#reported[channel]))
-        )
-          return false;
-        options.before?.();
-        if (!current(channel)) return false;
-        // Commit before user code; nested delivery can then clear or replace this report.
-        const report = { ...identities[channel] };
-        this.#reported[channel] = reported[channel] = report;
-        deliver(values[channel], state.snapshot);
-        return true;
+        const ready = () =>
+          current(channel) &&
+          (options.force || !same(identities[channel], this.#reported[channel]));
+        if (!ready()) return false;
+        return this.#deliver(() => {
+          if (!ready()) return false;
+          options.before?.();
+          if (!current(channel)) return false;
+          // Commit before user code; queued reports are revalidated when their turn arrives.
+          const report = { ...identities[channel] };
+          this.#reported[channel] = reported[channel] = report;
+          deliver(values[channel], state.snapshot);
+          return true;
+        });
       }
     };
   }
@@ -118,6 +141,7 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
   dispose() {
     this.#closed = true;
     this.invalidate();
+    this.#pending.length = 0;
     this.#reported = { inspect: empty(), select: empty() };
   }
 }

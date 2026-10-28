@@ -338,6 +338,59 @@ for (const entry of inspectionEntries) {
     }
 
     if (entry.surface === 'component') {
+      for (const channel of ['inspect', 'select'] as const) {
+        test(`independent ${channel} listeners receive a nested dismissal in broadcast order`, async ({
+          page
+        }) => {
+          const result = await page.evaluate(async (channel) => {
+            const f = window.notificationFixture;
+            const module = '/tests/browser/fixtures/inspection-matrix.ts';
+            const { inspectionValue }: typeof import('./fixtures/inspection-matrix.js') =
+              await import(module);
+            f.pin();
+            const early: (string | null)[] = [];
+            const late: (string | null)[] = [];
+            let dismissed = false;
+            f.chart!.addEventListener(`scope-${channel}`, (event) => {
+              const context = (
+                event as CustomEvent<{ context: Parameters<typeof inspectionValue>[0] }>
+              ).detail.context;
+              const value = inspectionValue(context);
+              early.push(value);
+              if (!dismissed && value === '200') {
+                dismissed = true;
+                f.dismiss();
+              }
+            });
+            // A delegated host listener must observe the same order as the component listener.
+            f.host.addEventListener(`scope-${channel}`, (event) => {
+              const context = (
+                event as CustomEvent<{ context: Parameters<typeof inspectionValue>[0] }>
+              ).detail.context;
+              late.push(inspectionValue(context));
+            });
+            await f.replace('200');
+            await f.settle();
+            f.repaint();
+            await f.settle();
+            return {
+              dismissed,
+              early,
+              late,
+              latest: f.latest,
+              pin: f.chart!.viewState.pinnedKey,
+              hidden: f.tooltipHidden
+            };
+          }, channel);
+          expect(result.dismissed).toBe(true);
+          expect(result.early).toEqual(['200', null]);
+          expect(result.late).toEqual(result.early);
+          expect(result.latest).toEqual({ inspect: null, select: null });
+          expect(result.pin).toBeNull();
+          expect(result.hidden).toBe(true);
+        });
+      }
+
       test('state restoration, host actions and immediate pin dismissal use the same notifications', async ({
         page
       }) => {
@@ -525,6 +578,56 @@ for (const entry of inspectionEntries) {
           expect(result.repeated).toEqual([]);
           expect(result.latest).toEqual({ inspect: null, select: null });
           expect(result.hidden).toBe(true);
+        });
+      }
+    }
+
+    if (entry.family !== 'metric' && entry.surface !== 'component') {
+      for (const selected of [false, true]) {
+        test(`Enter commits ${selected ? 'unpinning' : 'pinning'} before navigation paints pending data`, async ({
+          page
+        }) => {
+          const result = await page.evaluate(async (selected) => {
+            const f = window.notificationFixture;
+            const module = '/tests/browser/fixtures/inspection-matrix.ts';
+            const { inspectionValue }: typeof import('./fixtures/inspection-matrix.js') =
+              await import(module);
+            if (selected) f.pin();
+            else f.key('Home');
+            f.events.length = 0;
+            let dismissed = false;
+            f.hook = (notification) => {
+              if (
+                !dismissed &&
+                notification.channel === (selected ? 'select' : 'inspect') &&
+                inspectionValue(notification.context) === '200'
+              ) {
+                dismissed = true;
+                f.dismiss();
+              }
+            };
+            await f.replace('200');
+            // No settle: Enter navigates and synchronously paints the queued replacement.
+            f.key('Enter');
+            await f.settle();
+            const events = f.events.splice(0);
+            f.repaint();
+            await f.settle();
+            return {
+              dismissed,
+              events,
+              repeated: f.events,
+              latest: f.latest,
+              hidden: f.tooltipHidden
+            };
+          }, selected);
+          expect(result.dismissed).toBe(!selected);
+          expect(result.latest).toEqual({ inspect: null, select: null });
+          expect(result.hidden).toBe(true);
+          expect(
+            result.events.filter((event) => event.channel === 'select').at(-1)?.context
+          ).toBeNull();
+          expect(result.repeated).toEqual([]);
         });
       }
     }

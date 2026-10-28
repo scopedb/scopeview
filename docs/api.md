@@ -103,6 +103,8 @@ Event context captures the displayed snapshot. Its source fields are copied toge
 
 For every family, `scope-select` describes the persistent selection. Its `key` and `context` are `null` and `pinned` is `false` when keyboard navigation clears selection, even if `scope-inspect` still describes a transient reading. Clearing an already-null reported state does not emit another selection event. Host control callbacks follow the same reentrancy rules as inspection listeners; dismissing from either callback keeps the reading hidden.
 
+If a listener changes inspection state, the current event finishes broadcasting before nested inspection events are delivered. Those nested events are revalidated and delivered within the same synchronous delivery, so component and delegated host listeners observe the same state order.
+
 | Event                           | Detail                                                             |
 | ------------------------------- | ------------------------------------------------------------------ |
 | `scope-ready`                   | Rendered visualization and row/node counts; may fire after repaint |

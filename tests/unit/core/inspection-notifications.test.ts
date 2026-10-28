@@ -85,6 +85,62 @@ describe('inspection notifications', () => {
     expect(sent).toEqual(['b', 'a']);
   });
 
+  it('finishes broadcasting to every observer before delivering a nested clear', () => {
+    const { state, notifications } = fixture();
+    const first: (string | null)[] = [];
+    const second: (string | null)[] = [];
+    const broadcast = (value: { target: ChartInteraction<string> | null }) => {
+      const key = value.target?.key ?? null;
+      first.push(key);
+      if (key) {
+        state.select.target = null;
+        notifications.invalidate('select');
+        notifications.capture().emit('select', broadcast);
+      }
+      second.push(key);
+    };
+    notifications.capture().emit('select', broadcast);
+    expect(first).toEqual(['a', null]);
+    expect(second).toEqual(first);
+  });
+
+  it('revalidates queued reports and keeps only the latest nested state', () => {
+    const { state, notifications, deliver, sent } = fixture();
+    notifications.capture().emit('select', () => {
+      state.select.target = target('b');
+      notifications.capture().emit('select', deliver);
+      state.select.target = target('c');
+      notifications.capture().emit('select', deliver);
+      expect(sent).toEqual([]);
+    });
+    expect(sent).toEqual(['c']);
+  });
+
+  it('cancels queued deliveries on disposal', () => {
+    const { state, notifications, deliver, sent } = fixture();
+    notifications.capture().emit('inspect', () => {
+      state.select.target = target('b');
+      notifications.capture().emit('select', deliver);
+      notifications.dispose();
+    });
+    expect(sent).toEqual([]);
+  });
+
+  it('drains pending state and releases the broadcast boundary when a callback throws', () => {
+    const { state, notifications, deliver, sent } = fixture();
+    expect(() =>
+      notifications.capture().emit('select', () => {
+        state.select.target = null;
+        notifications.capture().emit('select', deliver);
+        throw new Error('Host failure');
+      })
+    ).toThrow('Host failure');
+    expect(sent).toEqual(['null']);
+    state.select.target = target('b');
+    notifications.capture().emit('select', deliver);
+    expect(sent).toEqual(['null', 'b']);
+  });
+
   it('revalidates after control callbacks and does not commit superseded reports', () => {
     const { state, notifications, deliver, sent } = fixture();
     const pending = notifications.capture();
