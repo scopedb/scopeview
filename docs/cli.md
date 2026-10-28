@@ -31,7 +31,7 @@ To run without adding a project dependency (`--yes` keeps npm installation promp
 
 ```sh [npm]
 npx --yes @scopedb/scopeview example bar > chart.json
-npx @scopedb/scopeview render chart.json --output chart.html
+npx --yes @scopedb/scopeview render chart.json --output chart.html
 ```
 
 ```sh [pnpm]

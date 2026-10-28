@@ -19,7 +19,7 @@ Run the CLI without adding a project dependency. Choose your package manager; al
 ```sh
 # npm
 npx --yes @scopedb/scopeview example bar > chart.json
-npx @scopedb/scopeview render chart.json --output chart.html
+npx --yes @scopedb/scopeview render chart.json --output chart.html
 
 # pnpm
 pnpm dlx @scopedb/scopeview example bar > chart.json
