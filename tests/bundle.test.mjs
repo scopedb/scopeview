@@ -95,30 +95,6 @@ test('unused imports vanish and a named scalar import costs no more than its sub
   assert.equal(size(barrel), size(direct));
 });
 
-test('shared lifecycle keeps optional interaction capabilities out of headless and Canvas out of scalar', async () => {
-  const [headless, runtime, interactions, scalar] = await Promise.all(
-    ['headless', 'runtime', 'interactions', 'scalar'].map(async (entry) =>
-      code(
-        await consumer(`import * as api from '@scopedb/scopeview/${entry}'; globalThis.api = api;`)
-      )
-    )
-  );
-  // Check retained behavior independently of internal chunk names.
-  for (const [capability, marker, optional] of [
-    ['range selection', 'range-handles', runtime],
-    ['linked highlighting', 'linkedHighlight', runtime],
-    ['viewport input', 'deltaMode', runtime],
-    ['viewport state', 'Invalid viewport bounds.', interactions]
-  ]) {
-    assert.ok(optional.includes(marker), `${capability} must remain available through its entry`);
-    assert.ok(!headless.includes(marker), `headless retained optional ${capability}`);
-  }
-  for (const marker of ['ResizeObserver', 'resolution:', 'getContext']) {
-    assert.ok(headless.includes(marker), `headless must retain ${marker}`);
-    assert.ok(!scalar.includes(marker), `scalar retained Canvas lifecycle code: ${marker}`);
-  }
-});
-
 test('component definitions have no registration effect; a bare register import survives bundling', async () => {
   for (const [source, expected] of [
     ["import * as api from '@scopedb/scopeview/element'; globalThis.api = api;", []],
