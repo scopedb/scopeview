@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "title": "Requests by service",
+  "data": {
+    "fields": [
+      {
+        "name": "service",
+        "data_type": "string"
+      },
+      {
+        "name": "requests",
+        "data_type": "number"
+      }
+    ],
+    "rows": [["api", "120"], ["worker", "80"], ["idle", "0"]]
+  },
+  "spec": {
+    "visualization": "treemap",
+    "encoding": {
+      "category": "service",
+      "value": "requests"
+    }
+  }
+}

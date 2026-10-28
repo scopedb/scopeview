@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScopeView · chart reading</title>
+  <link rel="stylesheet" href="./metric-inspection.css">
+  <style>
+    scope-chart { --scope-chart-height: 260px; }
+    article[hidden] { display: none; }
+    label { display: flex; align-items: center; gap: 8px; }
+    select { font: inherit; padding: 6px 10px; border: 1px solid #cdd6de; border-radius: 4px; background: white; color: inherit; }
+  </style>
+</head>
+<body>
+  <main>
+    <header><a href="/">ScopeDB</a><span>/ ScopeView</span><nav><a href="./metric-inspection.html">Metric inspection</a><a href="./color-system.html">Color system</a></nav></header>
+    <div class="intro"><p>CHART READING</p><h1>One language. Different shapes.</h1><span>Hover to read. Click to select, then compare. Semantic colors stay consistent across every chart.</span></div>
+    <div class="controls">
+      <label>Chart <select id="family" aria-label="Chart family"><option value="all">All charts</option><option value="bar">Bar</option><option value="line">Line</option><option value="area">Stacked area</option><option value="donut">Donut</option><option value="treemap">Treemap</option><option value="scatter">Scatter</option></select></label>
+      <button id="reset" type="button">Reset selections and visibility</button>
+      <span>Shift-click a legend item to isolate a series.</span>
+    </div>
+    <div class="surface-headings"><span>Light surface</span><span>Dark surface</span></div>
+    <div class="grid">
+      <article data-family="bar"><scope-chart id="bar-light" data-family="bar"></scope-chart><p>Values sit above sparse bars. Zero remains a real reading without a fabricated bar.</p></article>
+      <article data-family="bar" class="dark"><scope-chart id="bar-dark" data-family="bar"></scope-chart><p>Stable status colors and cursor-following inspection on a dark surface.</p></article>
+      <article data-family="line"><scope-chart id="line-light" data-family="line"></scope-chart><p>Quiet continuous strokes; compact points appear during inspection. Last, Avg and Max summarize returned observations.</p></article>
+      <article data-family="line" class="dark"><scope-chart id="line-dark" data-family="line"></scope-chart><p>The last bucket is explicitly partial. Its current value is not a completed count.</p></article>
+      <article data-family="area"><scope-chart id="area-light" data-family="area"></scope-chart><p>Quiet fills and clear boundaries. Straight connections retain the sample positions.</p></article>
+      <article data-family="area" class="dark"><scope-chart id="area-dark" data-family="area"></scope-chart><p>Read the individual series value. Last, Avg and Max use returned data, including the partial bucket.</p></article>
+      <article data-family="donut"><scope-chart id="donut-light" data-family="donut"></scope-chart><p>Hover expands the outer edge; the center total and sector identity stay stable.</p></article>
+      <article data-family="donut" class="dark"><scope-chart id="donut-dark" data-family="donut"></scope-chart><p>Select one sector, then hover another. The reading follows your cursor.</p></article>
+      <article data-family="treemap"><scope-chart id="treemap-light" data-family="treemap"></scope-chart><p>Text adapts to available space; the inspector retains complete names and exact values.</p></article>
+      <article data-family="treemap" class="dark"><scope-chart id="treemap-dark" data-family="treemap"></scope-chart><p>Hover shifts the cell's lightness; a contour identifies the selected cell during comparison.</p></article>
+      <article data-family="scatter"><scope-chart id="scatter-light" data-family="scatter"></scope-chart><p>A source-colored ring identifies the reading; neighboring observations stay readable.</p></article>
+      <article data-family="scatter" class="dark"><scope-chart id="scatter-dark" data-family="scatter"></scope-chart><p>A selected point stays visible while you compare another observation.</p></article>
+    </div>
+    <footer>All data is synthetic. Rendering and inspection run locally in the independent library.</footer>
+  </main>
+  <script type="module" src="./mark-inspection.ts"></script>
+</body>
+</html>

@@ -1,0 +1,758 @@
+:host {
+  display: block;
+  min-width: 0;
+  color: var(--color-text-primary);
+  color-scheme: light;
+  font: var(--scope-chart-font-size-body) / 1.5 var(--font-sans);
+  container-type: inline-size;
+}
+:host([theme="dark"]) {
+  color-scheme: dark;
+}
+:host([theme="system"]) {
+  color-scheme: light dark;
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+.root {
+  background: var(--color-surface);
+  min-width: 0;
+}
+h2,
+p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+h2 {
+  font-size: var(--scope-chart-font-size-title);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.description {
+  font-size: var(--scope-chart-font-size-control);
+  color: var(--color-text-secondary);
+  margin-top: var(--scope-chart-space-small);
+  line-height: 1.6;
+}
+header {
+  padding: 18px var(--scope-chart-space-section) var(--scope-chart-space-micro);
+}
+.viewport {
+  position: relative;
+  height: var(--scope-chart-height, 300px);
+  min-height: 0;
+}
+.canvas,
+.decoration,
+.metrics,
+.status {
+  position: absolute;
+  inset: 0;
+}
+.canvas {
+  z-index: 1;
+}
+.canvas:focus-visible,
+.viewport:focus-visible {
+  outline: var(--scope-chart-focus-width) solid var(--color-text-brand);
+  outline-offset: -2px;
+  border-radius: 3px;
+}
+:host(:is(scope-trace, scope-flame))
+  .root:has(.toolbar:not([hidden]) .inspect:not([hidden]))
+  .canvas:focus-visible {
+  outline: none;
+}
+:host(:is(scope-trace, scope-flame))
+  .root:has(.canvas:focus-visible)
+  .toolbar:not([hidden])
+  .inspect:not([hidden]) {
+  outline: var(--scope-chart-focus-width) solid var(--color-text-brand);
+  outline-offset: 2px;
+}
+.decoration {
+  z-index: 2;
+  pointer-events: none;
+  overflow: hidden;
+}
+.status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--scope-chart-space-large);
+  text-align: center;
+  color: var(--color-text-secondary);
+  background: var(--color-surface);
+  z-index: 3;
+  overflow-wrap: anywhere;
+}
+.status.error {
+  color: var(--color-text-danger);
+}
+.status.loading {
+  background: linear-gradient(
+    100deg,
+    var(--color-surface-hover),
+    var(--color-surface),
+    var(--color-surface-hover)
+  );
+  background-size: 200% 100%;
+  animation: sweep var(--scope-chart-motion-loading) ease-in-out infinite;
+}
+@keyframes sweep {
+  to {
+    background-position: -200% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status.loading {
+    animation: none;
+  }
+}
+.metrics {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--scope-chart-space-large);
+  padding: var(--scope-chart-space-large);
+  overflow: auto;
+}
+.metric {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.metric-label {
+  color: var(--color-text-secondary);
+  font-size: var(--scope-chart-font-size-control);
+  margin-bottom: var(--scope-chart-space-small);
+}
+.metric-value {
+  font-size: var(--scope-chart-font-size-metric);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  font-variant-numeric: tabular-nums;
+}
+.metric:first-child .metric-value {
+  font-size: calc(clamp(32px, 6vw, 64px) * var(--scope-chart-font-scale));
+}
+.metric-exact {
+  font: var(--scope-chart-font-size-caption) / 1.6 var(--font-mono);
+  color: var(--color-text-secondary);
+}
+@container (max-width: 480px) {
+  .viewport:has(.metrics:not([hidden])) {
+    height: auto;
+  }
+  .metrics:not([hidden]) {
+    position: relative;
+    min-height: var(--scope-chart-height, 300px);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--scope-chart-space-section);
+    padding: var(--scope-chart-space-large);
+    overflow: visible;
+  }
+  .metric:first-child {
+    grid-column: 1 / -1;
+  }
+}
+.center {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+.center strong {
+  font-size: var(--scope-chart-font-size-center);
+  font-weight: 600;
+}
+.center span {
+  max-width: 35%;
+  text-align: center;
+  overflow-wrap: anywhere;
+  color: var(--color-text-secondary);
+  font-size: var(--scope-chart-font-size-control);
+}
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--scope-chart-space-micro) var(--scope-chart-space-reading);
+  padding: var(--scope-chart-space-inline) var(--scope-chart-space-reading)
+    var(--scope-chart-space-panel);
+}
+button {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    background-color var(--scope-chart-motion-control),
+    border-color var(--scope-chart-motion-control),
+    color var(--scope-chart-motion-control);
+}
+button:focus-visible {
+  outline: var(--scope-chart-focus-width) solid var(--color-text-brand);
+  outline-offset: 2px;
+}
+button:disabled {
+  cursor: default;
+  opacity: var(--scope-chart-opacity-disabled);
+}
+.legend button {
+  display: inline-flex;
+  gap: var(--scope-chart-space-inline);
+  align-items: center;
+  border: 0;
+  background: none;
+  padding: var(--scope-chart-space-small) var(--scope-chart-space-inline);
+  border-radius: var(--radius-chart-control);
+  min-height: var(--scope-chart-control-height);
+  max-width: 100%;
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-size: var(--scope-chart-font-size-control);
+}
+.legend button:enabled:hover {
+  background: var(--color-surface-hover);
+}
+.legend button:enabled:active {
+  background: var(--color-surface-pressed);
+}
+.swatch {
+  display: inline-block;
+  width: 3px;
+  height: 12px;
+  border-radius: 1px;
+  flex-shrink: 0;
+  background: var(--series-color);
+  border: 1px solid var(--series-color);
+}
+.legend button[aria-pressed="false"] .swatch {
+  background: transparent;
+}
+.legend button[aria-pressed="false"] .name {
+  text-decoration: line-through;
+  color: var(--color-text-tertiary);
+}
+.legend-series {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--scope-chart-space-inline);
+  min-width: 0;
+}
+.legend[data-columns] {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) repeat(var(--legend-columns), minmax(56px, max-content));
+  gap: 0 var(--scope-chart-space-reading);
+  overflow-x: auto;
+}
+.legend[data-columns] :is(button, .legend-head) {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+}
+.legend-head {
+  color: var(--color-text-tertiary);
+  font-size: var(--scope-chart-font-size-caption);
+  padding: var(--scope-chart-space-small) var(--scope-chart-space-inline);
+  border-bottom: 1px solid var(--color-border-light);
+}
+.legend-head span:not(:first-child),
+.legend-value {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.legend[data-columns] .name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.legend-value {
+  color: var(--color-text-secondary);
+}
+.legend button[aria-pressed="false"] .legend-value {
+  color: var(--color-text-tertiary);
+}
+.summary {
+  padding: var(--scope-chart-space-micro) var(--scope-chart-space-section)
+    var(--scope-chart-space-reading);
+  color: var(--color-text-tertiary);
+  font-size: var(--scope-chart-font-size-caption);
+  font-variant-numeric: tabular-nums;
+}
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--scope-chart-space-small);
+  padding: var(--scope-chart-space-control) var(--scope-chart-space-reading);
+  border-top: 1px solid var(--color-border-light);
+  color: var(--color-text-secondary);
+}
+.toolbar button,
+.tooltip button,
+.pagination button {
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-chart-control);
+  min-height: var(--scope-chart-control-height);
+  padding: var(--scope-chart-space-small) var(--scope-chart-space-control);
+  font-size: var(--scope-chart-font-size-control);
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.toolbar button:enabled:hover,
+.tooltip button:enabled:hover,
+.pagination button:enabled:hover {
+  background: var(--color-surface-hover);
+}
+.toolbar button {
+  padding-left: var(--scope-chart-space-inline);
+  padding-right: var(--scope-chart-space-inline);
+}
+.toolbar button:enabled:active,
+.tooltip button:enabled:active,
+.pagination button:enabled:active {
+  background: var(--color-surface-pressed);
+}
+.toolbar button[aria-expanded="true"] {
+  background: var(--color-surface-selected);
+  color: var(--color-text-brand);
+}
+.toolbar button[aria-expanded="true"]:enabled:hover {
+  background: var(--color-surface-selected-hover);
+}
+.toolbar .inspect {
+  color: var(--color-text-primary);
+}
+.toolbar .inspect[data-active] {
+  background: var(--color-chart-inspection-pinned);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+.toolbar .inspect[data-active]:enabled:hover {
+  background: var(--color-chart-inspection-pinned);
+  border-color: var(--color-text-tertiary);
+}
+.toolbar-group {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-chart-control);
+  gap: 1px;
+  padding: 1px;
+}
+.toolbar-group button {
+  min-height: 24px;
+  padding-top: var(--scope-chart-space-micro);
+  padding-bottom: var(--scope-chart-space-micro);
+}
+.toolbar .data,
+.toolbar .collapse {
+  min-width: 72px;
+}
+.toolbar .icon-button {
+  width: var(--scope-chart-control-height);
+  padding: var(--scope-chart-space-micro);
+  font-size: 17px;
+  line-height: 18px;
+}
+.attribution {
+  margin-left: auto;
+  padding: 0 var(--scope-chart-space-small);
+  font-size: var(--scope-chart-font-size-caption);
+  color: var(--color-text-tertiary);
+}
+/* Floating readings and pinned details share one text rhythm. */
+.tooltip {
+  font-size: var(--scope-chart-tooltip-font-size);
+  line-height: var(--scope-chart-tooltip-line-height);
+  position: fixed;
+  margin: 0;
+  inset: auto;
+  z-index: 2147483647;
+  display: flex;
+  flex-direction: column;
+  width: var(--scope-chart-tooltip-width, max-content);
+  min-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-min-width)),
+    calc(100vw - 16px)
+  );
+  max-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-max-width)),
+    calc(100vw - 16px)
+  );
+  max-height: calc(100dvh - 16px);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-chart-inspector);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-tooltip);
+  pointer-events: none;
+  overflow-wrap: anywhere;
+}
+:host(:is(scope-trace, scope-flame)) .tooltip {
+  width: var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-entity-width));
+  max-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-entity-width)),
+    calc(100vw - 16px)
+  );
+}
+.tooltip.pinned,
+.tooltip.locked {
+  pointer-events: auto;
+  user-select: text;
+}
+.tooltip[popover]:not(:popover-open) {
+  display: none;
+}
+.tooltip.pinned .tooltip-heading strong,
+.tooltip.pinned .tooltip-context {
+  white-space: pre-wrap;
+}
+:host .tooltip.compact {
+  width: var(--scope-chart-tooltip-width, max-content);
+  max-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-compact-width)),
+    calc(100vw - 16px)
+  );
+}
+:host(:is(scope-trace, scope-flame)) .tooltip.compact {
+  width: var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-compact-width));
+}
+.tooltip.compact .tooltip-heading strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.tooltip.compact .tooltip-context {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tooltip.compact .tooltip-value {
+  font-weight: 600;
+}
+.tooltip-preview-hint {
+  margin: 0 var(--scope-chart-space-reading) var(--scope-chart-space-control);
+  font-size: var(--scope-chart-font-size-context);
+  color: var(--color-text-tertiary);
+}
+.tooltip-heading {
+  gap: var(--scope-chart-space-inline);
+  padding: var(--scope-chart-space-control) var(--scope-chart-space-reading) 0;
+  display: flex;
+  align-items: baseline;
+}
+.tooltip-heading strong {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.tooltip .swatch {
+  align-self: center;
+}
+.tooltip-badge {
+  font-size: var(--scope-chart-font-size-context);
+  line-height: 1.6;
+  flex-shrink: 0;
+  align-self: flex-start;
+  font-weight: 400;
+  padding: 0 5px;
+  border-radius: 3px;
+  background: var(--color-chart-inspection-pinned);
+  border: 1px solid var(--color-border);
+}
+.tooltip-context {
+  margin: var(--scope-chart-space-micro) var(--scope-chart-space-reading) 0;
+  color: var(--color-text-secondary);
+  font:
+    var(--scope-chart-font-size-context) / var(--scope-chart-tooltip-line-height) var(--font-mono);
+}
+.tooltip-content {
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.tooltip-body {
+  padding: var(--scope-chart-space-inline) var(--scope-chart-space-reading)
+    var(--scope-chart-space-control);
+}
+.tooltip:not(.compact) .tooltip-body {
+  margin-top: var(--scope-chart-space-inline);
+  border-top: 1px solid var(--color-border-light);
+}
+.tooltip-row {
+  padding: var(--scope-chart-tooltip-row-padding) 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr);
+  gap: var(--scope-chart-space-panel);
+  align-items: baseline;
+}
+.tooltip-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--scope-chart-space-inline);
+  color: var(--color-text-secondary);
+}
+.tooltip-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.tooltip-row[data-format="number"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+}
+.tooltip-row[data-format="number"] .tooltip-value {
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+.tooltip-row[data-format="code"] .tooltip-value {
+  font: var(--scope-chart-font-size-caption) / 1.7 var(--font-mono);
+  letter-spacing: 0;
+}
+.tooltip-row[data-tone="danger"] .tooltip-value {
+  color: var(--color-text-danger);
+}
+.tooltip-row[data-tone="warning"] .tooltip-value {
+  color: var(--color-chart-warning);
+}
+.tooltip-row[data-tone] .tooltip-label::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-chart-warning);
+  align-self: center;
+}
+.tooltip-row[data-tone="danger"] .tooltip-label::before {
+  background: var(--color-text-danger);
+}
+.tooltip-footer {
+  padding: var(--scope-chart-space-inline) var(--scope-chart-space-reading);
+  gap: var(--scope-chart-space-inline);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-chart-reading);
+}
+.tooltip-hint {
+  font-size: var(--scope-chart-font-size-context);
+  color: var(--color-text-tertiary);
+}
+.tooltip button {
+  border-color: var(--color-border);
+}
+/* Sample time already has an axis badge. Keep the exact date/zone accessible,
+   then disclose it visually with the complete selected/locked reading. */
+.tooltip.sample:not(.docked) {
+  min-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-sample-min-width)),
+    calc(100vw - 16px)
+  );
+}
+.tooltip.sample:not(.docked) .tooltip-heading strong {
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--color-text-secondary);
+}
+.tooltip.sample:not(.docked) .tooltip-context {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.tooltip.sample:not(.docked) .tooltip-body {
+  border-top: 0;
+  margin-top: 0;
+  padding-top: 0;
+}
+.tooltip-row[data-active] {
+  font-weight: 600;
+}
+.tooltip-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--scope-chart-space-section);
+  margin: 0 var(--scope-chart-space-reading) var(--scope-chart-space-control);
+  padding-top: var(--scope-chart-space-inline);
+  border-top: 1px solid var(--color-border-light);
+  font-variant-numeric: tabular-nums;
+}
+:host .tooltip.docked {
+  position: relative;
+  z-index: auto;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: 300px;
+  border: 0;
+  border-top: 1px solid var(--color-border-light);
+  border-radius: 0;
+  box-shadow: none;
+  background: var(--color-chart-reading);
+}
+.tooltip.docked .tooltip-content {
+  scrollbar-width: thin;
+}
+.tooltip.docked.pinned .tooltip-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--scope-chart-space-control) var(--scope-chart-space-large);
+  padding: var(--scope-chart-space-panel) var(--scope-chart-space-section)
+    var(--scope-chart-space-section);
+}
+.tooltip.docked.pinned .tooltip-heading {
+  padding: var(--scope-chart-space-panel) var(--scope-chart-space-section) 0;
+}
+.tooltip.docked.pinned .tooltip-context {
+  margin-left: 27px;
+  margin-right: var(--scope-chart-space-section);
+}
+.tooltip.docked.pinned .tooltip-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--scope-chart-space-micro);
+}
+.tooltip.docked.pinned .tooltip-label {
+  font-size: var(--scope-chart-font-size-caption);
+}
+.tooltip.docked.pinned .tooltip-value {
+  text-align: left;
+}
+.tooltip.docked .tooltip-footer {
+  padding-left: var(--scope-chart-space-section);
+  padding-right: var(--scope-chart-space-section);
+}
+@container (max-width: 480px) {
+  .tooltip.docked.pinned .tooltip-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.canvas[data-scope-panning] .plot {
+  cursor: grabbing !important;
+}
+.raw {
+  overflow: auto;
+  max-height: 340px;
+  border-top: 1px solid var(--color-border-light);
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--scope-chart-font-size-control);
+  text-align: left;
+}
+th,
+td {
+  border-bottom: 1px solid var(--color-border-light);
+  padding: var(--scope-chart-space-inline) var(--scope-chart-space-panel);
+  max-width: 320px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  font-weight: 600;
+}
+tbody tr:hover {
+  background: var(--color-surface-hover);
+}
+td {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: var(--scope-chart-font-size-caption);
+}
+caption {
+  padding: var(--scope-chart-space-control) var(--scope-chart-space-panel);
+  text-align: left;
+  color: var(--color-text-secondary);
+}
+.pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--scope-chart-space-control);
+  padding: var(--scope-chart-space-control) var(--scope-chart-space-section);
+  font-size: var(--scope-chart-font-size-control);
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+@media (pointer: coarse) {
+  button,
+  .legend button,
+  .toolbar button,
+  .toolbar-group button,
+  .tooltip button,
+  .pagination button {
+    min-height: var(--scope-chart-control-touch-height);
+  }
+  .toolbar .icon-button {
+    width: var(--scope-chart-control-touch-height);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button {
+    transition: none;
+  }
+}
+
+.tooltip-observations {
+  border-top: 1px solid var(--color-border-light);
+  padding-bottom: var(--scope-chart-space-control);
+}
+.tooltip-observations > .tooltip-context {
+  margin-bottom: var(--scope-chart-space-inline);
+}
+.tooltip-observation-list {
+  display: grid;
+  gap: var(--scope-chart-space-micro);
+  padding: 0 var(--scope-chart-space-reading);
+}
+.tooltip .tooltip-observation {
+  display: grid;
+  gap: var(--scope-chart-space-micro);
+  width: 100%;
+  height: auto;
+  text-align: left;
+  padding: var(--scope-chart-space-small) var(--scope-chart-space-inline);
+}
+.tooltip-observation[aria-pressed="true"] {
+  background: var(--color-surface-pressed);
+  border-color: var(--color-text-secondary);
+}
+.tooltip-observation .tooltip-context {
+  margin: 0;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}

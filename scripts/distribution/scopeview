@@ -1,0 +1,12 @@
+#!/bin/sh
+# Resolve launcher symlinks so the complete directory can be moved or linked into PATH.
+scopeview_script=$0
+while [ -L "$scopeview_script" ]; do
+  scopeview_link=$(readlink "$scopeview_script") || exit 1
+  case "$scopeview_link" in
+    /*) scopeview_script=$scopeview_link ;;
+    *) scopeview_script=$(dirname "$scopeview_script")/$scopeview_link ;;
+  esac
+done
+scopeview_root=$(CDPATH= cd -- "$(dirname "$scopeview_script")/.." && pwd -P) || exit 1
+exec "$scopeview_root/runtime/node" "$scopeview_root/app/node/cli.mjs" "$@"

@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScopeView · visual system</title>
+  <link rel="stylesheet" href="./visual-system.css">
+</head>
+<body>
+  <main>
+    <header class="brand">
+      <a href="/">ScopeDB</a><span class="divider">/</span><span>ScopeView</span>
+      <nav><a href="#metrics">Metrics</a><a href="#execution">Execution</a><a href="./interaction.html">States</a></nav>
+    </header>
+    <div class="intro">
+      <div><p class="eyebrow">THE SCOPEVIEW VISUAL SYSTEM</p><h1>Read the signal.</h1><p>Clear trends. Exact values. One way to inspect.</p></div>
+      <label class="surface-control">Surface <select id="surface"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+    </div>
+    <div id="palette" aria-label="ScopeView categorical palette"></div>
+    <section id="metrics" aria-labelledby="metrics-title">
+      <div class="section-heading"><h2 id="metrics-title">Traffic &amp; usage</h2><span>Sep 29, 2026 · source UTC</span></div>
+      <div class="grid">
+        <article class="wide"><scope-chart id="traffic" style="--scope-chart-height:230px"></scope-chart></article>
+        <article><scope-chart id="status" style="--scope-chart-height:200px"></scope-chart></article>
+        <article><scope-chart id="volume" style="--scope-chart-height:210px"></scope-chart></article>
+        <article><scope-chart id="services" style="--scope-chart-height:210px"></scope-chart></article>
+        <article><scope-chart id="total" style="--scope-chart-height:210px"></scope-chart></article>
+      </div>
+    </section>
+    <section id="execution" aria-labelledby="execution-title">
+      <div class="section-heading"><h2 id="execution-title">Inside a query</h2><button type="button" id="pin">Inspect storage span</button></div>
+      <article><scope-trace id="trace" style="--scope-chart-height:220px"></scope-trace></article>
+      <article class="profile"><scope-flame id="profile" style="--scope-chart-height:200px"></scope-flame></article>
+    </section>
+    <footer><span>Example data · rendered locally</span><span>Hover to read. Click or Enter to pin. Escape to dismiss.</span></footer>
+  </main>
+  <script type="module" src="./visual-system.ts"></script>
+</body>
+</html>

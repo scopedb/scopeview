@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ScopeView · interaction states</title>
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#f8f8f7;color:#181818;font:13px/1.5 Inter,system-ui,sans-serif}
+    main{max-width:1200px;margin:auto;padding:24px}header{display:flex;align-items:center;gap:12px;color:#737373;margin-bottom:24px}header strong{color:#181818;font-size:17px;font-weight:600;letter-spacing:-.03em}
+    h1{font-size:24px;font-weight:600;letter-spacing:-.04em;margin:0 0 6px}p{margin:0;color:#737373}
+    .controls{display:flex;flex-wrap:wrap;gap:20px;margin:20px 0}.controls label{display:flex;align-items:center;gap:8px}select{font:inherit;background:white;border:1px solid #dedede;border-radius:6px;padding:5px 8px}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;align-items:start}article{min-width:0;background:white;border:1px solid #e2e2e2;border-radius:8px;overflow:hidden}
+    article h2{font-size:13px;font-weight:600;margin:0;padding:14px 16px 2px}article>p{font-size:12px;padding:0 16px 10px;min-height:46px}.preview{display:block}
+    .note{font-size:12px;margin:20px 0}a{color:#0876dd;text-decoration:none}a:hover{text-decoration:underline}select:focus-visible,a:focus-visible{outline:2px solid #0876dd;outline-offset:3px}
+    @media(max-width:760px){main{padding:16px 12px}.grid{grid-template-columns:1fr}.controls{gap:12px}}
+  </style>
+</head>
+<body><main>
+  <header><strong>ScopeDB</strong><span>/</span><span>ScopeView</span></header>
+  <h1>One target, three reading states.</h1>
+  <p>Service and error colors stay stable. Pin keeps the reading in place.</p>
+  <div class="controls">
+    <label>Chart <select id="family"><option value="trace">Trace</option><option value="profile">Profile</option></select></label>
+    <label>Target <select id="target"></select></label>
+    <label>Surface <select id="surface"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+  </div>
+  <div class="grid">
+    <article><h2>Default</h2><p>Original data colors.</p><div class="preview" id="default"></div></article>
+    <article><h2>Hover</h2><p>A two-tone contour separates the target from the canvas and its fill.</p><div class="preview" id="hover"></div></article>
+    <article><h2>Pinned</h2><p>The same contour stays visible. Full details remain readable.</p><div class="preview" id="pinned"></div></article>
+  </div>
+  <p class="note">Choose a target above, or click a bar to compare its states. Blue is reserved for actions and keyboard focus.</p>
+  <nav><a href="./families.html">Trace &amp; profile →</a> · <a href="./infra.html">Metrics &amp; categories →</a></nav>
+</main><script type="module" src="./interaction.ts"></script></body>
+</html>

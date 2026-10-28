@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Query activity · ScopeView report</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--color-surface); color: var(--color-text-primary); font: 14px/1.6 var(--font-sans); }
+      main { max-width: 800px; margin: 48px auto; padding: 0 24px; }
+      header { margin-bottom: 28px; }
+      h1 { font-size: 28px; line-height: 1.2; margin: 8px 0 16px; }
+      h2 { font-size: 16px; margin: 0 0 4px; }
+      p { margin: 0; color: var(--color-text-secondary); }
+      a { color: var(--color-text-brand); }
+      .meta { display: flex; justify-content: space-between; gap: 16px; font-size: 12px; }
+      #totals { margin: 24px 0 36px; }
+      figure { margin: 0 0 36px; }
+      figcaption { margin-bottom: 12px; }
+      .columns { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 32px; }
+      .columns > * { min-width: 0; }
+      .columns .chart { --scope-chart-height: 168px; }
+      .query { color: var(--color-chart-series-1-line); }
+      .ingest { color: var(--color-chart-series-2-line); }
+      button { font: inherit; color: var(--color-text-brand); border: 1px solid var(--color-border); border-radius: var(--radius-chart-control); background: var(--color-surface); padding: 4px 10px; cursor: pointer; }
+      .figure-title { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
+      footer { font-size: 12px; color: var(--color-text-tertiary); border-top: 1px solid var(--color-border-light); padding-top: 12px; }
+      @media (max-width: 600px) {
+        main { margin: 24px auto; padding: 0 16px; }
+        .columns { grid-template-columns: minmax(0,1fr); gap: 0; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="meta"><span>OPERATIONS · DAILY REPORT</span><a id="theme" href="?theme=dark">Dark appearance</a></div>
+        <h1>Query activity</h1>
+        <p>2 October 2026 · Requests grew through the day. Query traffic accounts for most of the daily volume; storage scans dominate the sampled execution.</p>
+      </header>
+      <div id="totals" aria-label="Daily totals"></div>
+      <figure>
+        <figcaption>
+          <h2>Hourly requests</h2>
+          <p><span class="query">Query</span> and <span class="ingest">Ingest</span> · Supplied hourly observations</p>
+        </figcaption>
+        <div id="trend" class="chart"></div>
+      </figure>
+      <figure>
+        <figcaption><h2>Requests by service</h2><p>Daily counts, with an explicit zero for Archive.</p></figcaption>
+        <div id="services" class="chart" style="--scope-chart-height: 180px"></div>
+      </figure>
+      <div class="columns">
+        <figure>
+          <figcaption><h2>Sample query</h2><p>Parallel storage work within a 100 ms execution.</p></figcaption>
+          <div id="trace" class="chart"></div>
+        </figure>
+        <figure>
+          <figcaption class="figure-title">
+            <div><h2>Where CPU time goes</h2><p>100 samples · Inclusive weights</p></div>
+            <button id="explore" type="button" aria-pressed="false">Explore</button>
+          </figcaption>
+          <div id="profile" class="chart"></div>
+        </figure>
+      </div>
+      <footer>Synthetic sample data · Hover or use arrow keys for exact readings.</footer>
+    </main>
+    <script type="module">
+      import { createScalar } from '../src/scalar.ts';
+      import { createChart } from '../src/chart-axis.ts';
+      import { createTrace } from '../src/trace.ts';
+      import { createFlame } from '../src/flame.ts';
+      import SCOPE_CHART_TOKENS from '../src/theme/tokens.css?inline';
+      import { demoDocument } from '../docs/.vitepress/theme/demo-data.ts';
+      const style = document.createElement('style');
+      style.textContent = SCOPE_CHART_TOKENS.replaceAll(':host', ':root');
+      document.head.append(style);
+      const theme = new URLSearchParams(location.search).get('theme') === 'dark' ? 'dark' : 'light';
+      document.documentElement.style.colorScheme = theme;
+      const themeLink = document.getElementById('theme');
+      themeLink.href = `?theme=${theme === 'dark' ? 'light' : 'dark'}`;
+      themeLink.textContent = theme === 'dark' ? 'Light appearance' : 'Dark appearance';
+      const views = [createScalar(document.getElementById('totals'), [
+        { label: 'Requests', value: '83920' },
+        { label: 'Query', value: '43820' },
+        { label: 'Sample execution', value: '100000000', display: { divisor: '1000000', unit: 'ms', decimals: 0 } }
+      ], { theme })];
+      views.push(
+        createChart(document.getElementById('trend'), demoDocument('line'), { theme }),
+        createChart(document.getElementById('services'), demoDocument('bar'), { theme }),
+        createTrace(document.getElementById('trace'), demoDocument('trace'), { theme }),
+        createFlame(document.getElementById('profile'), demoDocument('profile'), { theme })
+      );
+      let stop;
+      const explore = document.getElementById('explore');
+      explore.addEventListener('click', async () => {
+        explore.disabled = true;
+        try {
+          if (stop) { stop(); stop = undefined; }
+          else {
+            const { enableInteractions } = await import('../src/interactions.ts');
+            stop = enableInteractions(views.at(-1));
+          }
+          explore.textContent = stop ? 'Back to report' : 'Explore';
+          explore.setAttribute('aria-pressed', String(Boolean(stop)));
+        } finally { explore.disabled = false; }
+      });
+      window.addEventListener('pagehide', () => {
+        for (const view of views) view.dispose();
+      }, { once: true });
+    </script>
+  </body>
+</html>

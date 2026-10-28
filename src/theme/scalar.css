@@ -1,0 +1,25 @@
+:host {
+  display: block;
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  font-family: var(--font-sans);
+}
+.values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--scope-chart-space-section);
+}
+.value {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.value-label {
+  color: var(--color-text-secondary);
+  font-size: var(--scope-chart-font-size-caption);
+}
+.value-number {
+  font-size: var(--scope-chart-font-size-metric);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}

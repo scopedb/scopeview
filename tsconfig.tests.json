@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["vite/client", "node"],
+    "allowJs": true
+  },
+  "include": ["src", "tests", "examples", "playwright.config.ts", "vitest.config.ts"]
+}

@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "title": "Requests by service",
+  "description": "Five-minute observations · gaps preserve returned NULLs",
+  "data": {
+    "fields": [
+      {
+        "name": "time",
+        "data_type": "timestamp"
+      },
+      {
+        "name": "service",
+        "data_type": "string"
+      },
+      {
+        "name": "requests",
+        "data_type": "number"
+      }
+    ],
+    "rows": [
+      ["2026-09-29T02:00:00Z", "api", "120"],
+      ["2026-09-29T02:00:00Z", "ingest", "90"],
+      ["2026-09-29T02:00:00Z", "worker", "30"],
+      ["2026-09-29T02:05:00Z", "api", "180"],
+      ["2026-09-29T02:05:00Z", "ingest", "108"],
+      ["2026-09-29T02:05:00Z", "worker", "46"],
+      ["2026-09-29T02:10:00Z", "api", "160"],
+      ["2026-09-29T02:10:00Z", "ingest", "102"],
+      ["2026-09-29T02:10:00Z", "worker", "40"],
+      ["2026-09-29T02:15:00Z", "api", null],
+      ["2026-09-29T02:15:00Z", "ingest", "130"],
+      ["2026-09-29T02:15:00Z", "worker", "50"],
+      ["2026-09-29T02:20:00Z", "api", "240"],
+      ["2026-09-29T02:20:00Z", "ingest", "155"],
+      ["2026-09-29T02:20:00Z", "worker", "64"],
+      ["2026-09-29T02:25:00Z", "api", "210"],
+      ["2026-09-29T02:25:00Z", "ingest", "140"],
+      ["2026-09-29T02:25:00Z", "worker", "72"],
+      ["2026-09-29T02:30:00Z", "api", "310"],
+      ["2026-09-29T02:30:00Z", "ingest", "162"],
+      ["2026-09-29T02:30:00Z", "worker", "83"],
+      ["2026-09-29T02:35:00Z", "api", "280"],
+      ["2026-09-29T02:35:00Z", "ingest", "152"],
+      ["2026-09-29T02:35:00Z", "worker", "70"],
+      ["2026-09-29T02:40:00Z", "api", "350"],
+      ["2026-09-29T02:40:00Z", "ingest", "175"],
+      ["2026-09-29T02:40:00Z", "worker", "91"]
+    ]
+  },
+  "spec": {
+    "visualization": "line",
+    "encoding": {
+      "x": {
+        "name": "time",
+        "data_type": "timestamp",
+        "occurrence": 0
+      },
+      "y": [
+        {
+          "name": "requests",
+          "data_type": "number",
+          "occurrence": 0
+        }
+      ],
+      "series": {
+        "name": "service",
+        "data_type": "string",
+        "occurrence": 0
+      }
+    }
+  }
+}

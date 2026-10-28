@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ScopeView · linked analysis</title>
+  <link rel="stylesheet" href="./linked-analysis.css">
+</head>
+<body><main>
+  <header class="brand"><strong>ScopeDB</strong><span>/ ScopeView</span><nav><a href="./embedding.html">Embedding</a><a href="./color-system.html">Color system</a><a href="./visual-system.html">Visual system</a></nav></header>
+  <div class="intro"><div><p class="eyebrow">CONNECTED READING</p><h1>From activity to execution</h1><p>Follow time across metrics and trace. Follow an operation into its CPU profile.</p></div><button type="button" id="theme">Dark theme</button></div>
+  <div class="controls"><button type="button" id="save">Save view</button><button type="button" id="restore" disabled>Restore view</button><button type="button" id="reset">Reset view</button><button type="button" id="update">Update snapshot</button><button type="button" id="remove">Remove scan operation</button><span id="feedback" role="status">Synthetic query · snapshot 1</span></div>
+  <div class="link-status" aria-label="Shared analysis state"><span>Window <strong id="linked-window">Full query</strong></span><span>Operation <strong id="linked-selection">None selected</strong></span><span>Cursor <strong id="linked-cursor">—</strong></span></div>
+  <div class="metrics-grid"><section><scope-chart id="activity"></scope-chart></section><section><scope-chart id="latency"></scope-chart></section></div>
+  <div class="execution-grid"><section><scope-trace id="trace"></scope-trace><p class="caption">Select a time range above or zoom here. Hover to read a span; click to pin it.</p></section><section><scope-flame id="profile"></scope-flame><p class="caption">CPU width is sample weight. Operation links highlight matching frames without changing this axis.</p></section></div>
+  <details><summary>Saved analysis state</summary><pre id="saved-state">Save a view to inspect its portable state.</pre></details>
+  <p class="footnote">Save a view, change a pin or zoom, then restore it. Saved views also survive a page reload. Update snapshot preserves valid identities; removing an operation clears its stale pin.</p>
+</main><script type="module" src="./linked-analysis.ts"></script></body>
+</html>

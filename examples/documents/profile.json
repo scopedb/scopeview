@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "kind": "profile",
+  "title": "Synthetic CPU profile",
+  "unit": "samples",
+  "frames": [
+    {
+      "id": "main",
+      "name": "main",
+      "selfWeight": "20"
+    },
+    {
+      "id": "query",
+      "parentId": "main",
+      "name": "query",
+      "selfWeight": "9007199254740993",
+      "file": "example.ts",
+      "line": 12
+    },
+    {
+      "id": "tiny",
+      "parentId": "main",
+      "name": "Tiny exact frame",
+      "selfWeight": "1"
+    },
+    {
+      "id": "zero",
+      "parentId": "main",
+      "name": "Zero self weight",
+      "selfWeight": "0"
+    }
+  ]
+}

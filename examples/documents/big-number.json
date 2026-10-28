@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "title": "Exact readings",
+  "data": {
+    "fields": [
+      {
+        "name": "requests",
+        "data_type": "number"
+      },
+      {
+        "name": "idle",
+        "data_type": "number"
+      },
+      {
+        "name": "missing",
+        "data_type": "number"
+      }
+    ],
+    "rows": [["9007199254740993", "0", null]]
+  },
+  "spec": {
+    "visualization": "big-number",
+    "encoding": {
+      "values": ["requests", "idle", "missing"]
+    }
+  }
+}

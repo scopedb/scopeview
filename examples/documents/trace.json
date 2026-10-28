@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "kind": "trace",
+  "title": "Synthetic request trace",
+  "coverage": "complete",
+  "spans": [
+    {
+      "id": "request",
+      "name": "GET /example",
+      "service": "api",
+      "startTimeNs": "1803600000000000000",
+      "endTimeNs": "1803600000020000000"
+    },
+    {
+      "id": "query",
+      "parentId": "request",
+      "name": "Query",
+      "service": "storage",
+      "startTimeNs": "1803600000001000000",
+      "endTimeNs": "1803600000015000000"
+    },
+    {
+      "id": "tiny",
+      "parentId": "request",
+      "name": "Tiny exact span",
+      "startTimeNs": "1803600000015000000",
+      "endTimeNs": "1803600000015000001"
+    },
+    {
+      "id": "zero",
+      "parentId": "request",
+      "name": "Zero duration",
+      "startTimeNs": "1803600000015000000",
+      "endTimeNs": "1803600000015000000"
+    }
+  ]
+}

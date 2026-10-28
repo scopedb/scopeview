@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en" data-dashboard="operations">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Three interactive dashboards built with ScopeView and synthetic data." />
+    <title>Dashboard lab · ScopeView</title>
+    <link rel="stylesheet" href="./dashboards.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="/" aria-label="ScopeView examples">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>scopeview<span class="brand-dot">.</span></span>
+        </a>
+        <div class="workspace"><span class="workspace-avatar">S</span><div><strong>Studio workspace</strong><span>Dashboard collection</span></div><span class="workspace-chevron" aria-hidden="true">⌄</span></div>
+        <p class="nav-label">DASHBOARDS <span>03</span></p>
+        <nav aria-label="Dashboards">
+          <a href="#operations" data-dashboard-link="operations"><span data-icon="activity"></span><span>System pulse</span><span class="nav-number">01</span></a>
+          <a href="#growth" data-dashboard-link="growth"><span data-icon="growth"></span><span>Product growth</span><span class="nav-number">02</span></a>
+          <a href="#revenue" data-dashboard-link="revenue"><span data-icon="wallet"></span><span>Revenue studio</span><span class="nav-number">03</span></a>
+        </nav>
+        <div class="sidebar-divider"></div>
+        <p class="nav-label">THE COLLECTION</p>
+        <div class="collection-note"><span data-icon="layers"></span><p>One chart library.<br />Three ways to see your data.</p></div>
+        <a class="library-link" href="./visual-system.html"><span data-icon="grid"></span>Explore chart gallery<span aria-hidden="true">↗</span></a>
+        <div class="sidebar-bottom">
+          <div class="reading-tip"><span data-icon="cursor"></span><strong>A little closer.</strong><p>Hover to explore. Click to pin a reading. Use arrow keys to move through a chart.</p></div>
+          <div class="sidebar-footer"><span class="avatar">SK</span><div><strong>ScopeView playground</strong><span>Made for curious minds</span></div></div>
+        </div>
+      </aside>
+      <div class="main-shell">
+        <header class="topbar"><div class="breadcrumb"><span data-icon="grid"></span><span>Dashboards</span><span class="breadcrumb-slash">/</span><strong id="breadcrumb-title">System pulse</strong></div><span class="sample-badge"><i></i>Synthetic dataset</span></header>
+        <main id="dashboard">
+          <div class="page-heading"><div><p class="eyebrow" id="eyebrow">01 / OBSERVABILITY</p><h1 id="page-title">A pulse on your platform.</h1><p class="page-description" id="page-description">Every request, every service. One clear picture.</p></div><div class="page-actions"><label class="range-control"><span data-icon="calendar"></span><select id="period" aria-label="Date range"><option value="7">Last 7 days</option><option value="30">Last 30 days</option></select></label><button id="export" type="button"><span data-icon="download"></span><span>Export CSV</span></button></div></div>
+          <div class="context-line"><span id="snapshot-range"></span><span class="context-right" id="context-detail"></span></div>
+          <section class="kpi-grid" aria-label="Key metrics" id="metrics"></section>
+          <div id="panels"></div>
+          <footer class="page-footer"><span><i></i>Rendered with ScopeView <span class="footer-separator">/</span> All data is simulated</span><span>Hover · Pin · Explore <span aria-hidden="true">↗</span></span></footer>
+        </main>
+      </div>
+    </div>
+    <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+    <script type="module" src="./dashboards.ts"></script>
+  </body>
+</html>

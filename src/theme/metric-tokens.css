@@ -1,0 +1,29 @@
+/* Generated from design-tokens.json by pnpm tokens:generate. */
+:host {
+  --color-chart-series-1-line: light-dark(#206cc4, #7cb6ff);
+  --color-chart-series-2-line: light-dark(#007f71, #59c9b8);
+  --color-chart-series-3-line: light-dark(#7c57ad, #c39dfa);
+  --color-chart-series-4-line: light-dark(#8e6500, #dfa83f);
+  --color-chart-series-5-line: light-dark(#43748c, #88bbd4);
+  --color-chart-series-6-line: light-dark(#a74671, #f58db7);
+  --color-chart-series-7-line: light-dark(#5f772d, #a3bf73);
+  --color-chart-series-8-line: light-dark(#007b8f, #56c4dc);
+  --color-chart-series-9-line: light-dark(#a95023, #f7966a);
+  --color-chart-series-10-line: light-dark(#5c61bc, #a1abff);
+  --color-chart-semantic-info: light-dark(#418be6, #4993ee);
+  --color-chart-semantic-info-line: light-dark(#206cc4, #7cb6ff);
+  --color-chart-semantic-success: light-dark(#3aa273, #42a878);
+  --color-chart-semantic-success-line: light-dark(#048254, #66ca98);
+  --color-chart-semantic-warning: light-dark(#d49915, #da9f22);
+  --color-chart-semantic-warning-line: light-dark(#8e6500, #e2a72e);
+  --color-chart-semantic-error-line: light-dark(#bc3737, #ff8d85);
+  --color-chart-semantic-critical: light-dark(#a03646, #be5160);
+  --color-chart-semantic-critical-line: light-dark(#93293b, #e97381);
+  --color-chart-semantic-debug: light-dark(#768a9f, #7c90a6);
+  --color-chart-semantic-debug-line: light-dark(#5c6f84, #a0b5cc);
+  --color-chart-semantic-trace: light-dark(#99a6b4, #9facba);
+  --color-chart-semantic-trace-line: light-dark(#636f7c, #a7b4c2);
+  --color-chart-semantic-unknown: light-dark(#808992, #868f98);
+  --color-chart-semantic-unknown-line: light-dark(#666e78, #aab4be);
+  --scope-chart-font-size-metric: calc(28px * var(--scope-chart-font-scale));
+}

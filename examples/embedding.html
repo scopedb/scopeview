@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ScopeView · embedding playground</title>
+    <link rel="stylesheet" href="./embedding.css">
+  </head>
+  <body>
+    <main>
+      <header class="lab-heading">
+        <a href="./visual-system.html">ScopeDB <span>/ ScopeView</span></a>
+        <span>Embedding playground</span>
+      </header>
+      <div class="lab-intro">
+        <h1>One reading experience. Different surroundings.</h1>
+        <p>The same synthetic snapshots in conversations, documents and application surfaces.</p>
+      </div>
+      <div class="lab-controls">
+        <div class="contexts" role="group" aria-label="Embedding context">
+          <button type="button" data-context="conversation" aria-pressed="true">Conversation</button>
+          <button type="button" data-context="document" aria-pressed="false">Document</button>
+          <button type="button" data-context="drawer" aria-pressed="false">Drawer</button>
+          <button type="button" data-context="dashboard" aria-pressed="false">Dashboard</button>
+          <button type="button" data-context="sandbox" aria-pressed="false">Sandbox</button>
+        </div>
+        <label class="width-control">Host width <input id="width" type="range" min="320" max="1100" step="20" value="680"><output id="width-value" for="width">680px</output></label>
+        <label>Surface <select id="surface"><option value="light">Light</option><option value="dark">Dark</option></select></label>
+      </div>
+      <div class="preview-stage" style="--preview-width:680px">
+        <section data-panel="conversation" class="conversation-host">
+          <div class="host-chrome"><strong>Query investigation</strong><span>Conversation</span></div>
+          <div class="messages">
+            <p class="user-message">Show the requests by service, then inspect the query trace.</p>
+            <article class="assistant-message">
+              <div class="message-author">Assistant</div>
+              <p>API requests increase across the returned observations. The gap is a returned NULL, not a zero.</p>
+              <div class="chart-card"><scope-chart id="chat-metric" data-metric></scope-chart></div>
+              <p class="message-followup">The trace shows two storage operations running in parallel.</p>
+              <div class="chart-card"><scope-trace id="chat-trace" data-trace></scope-trace></div>
+            </article>
+          </div>
+        </section>
+        <section data-panel="document" class="document-host" hidden>
+          <div class="document-meta">ENGINEERING NOTE · SEP 29, 2026</div>
+          <h2>Request behavior during the sample window</h2>
+          <p>This snapshot contains observations from three services. The report keeps the returned rows available alongside each chart.</p>
+          <figure><scope-chart id="document-metric" data-metric></scope-chart><figcaption>Figure 1. Five-minute observations; API has one missing value.</figcaption></figure>
+          <h3>Execution profile</h3>
+          <p>The profile uses inclusive samples. Its horizontal position is a weight coordinate, rather than elapsed time.</p>
+          <figure><scope-flame id="document-profile" data-profile></scope-flame><figcaption>Figure 2. Inspect a frame for its source file and exact weights.</figcaption></figure>
+        </section>
+        <section data-panel="drawer" class="workspace-host" hidden>
+          <div class="host-chrome"><strong>Event explorer</strong><span>Query details</span></div>
+          <div class="drawer-shell">
+            <div class="records-host">
+              <h2>Returned records</h2>
+              <table><thead><tr><th>Time (UTC)</th><th>Service</th><th>Requests</th></tr></thead><tbody>
+                <tr><td>02:00</td><td>api</td><td>120</td></tr><tr><td>02:05</td><td>api</td><td>180</td></tr><tr><td>02:10</td><td>api</td><td>160</td></tr><tr><td>02:15</td><td>api</td><td>NULL</td></tr><tr><td>02:20</td><td>api</td><td>240</td></tr>
+              </tbody></table>
+              <p>Read the same snapshot in the details drawer.</p>
+            </div>
+            <aside class="drawer" aria-label="Scrollable query details">
+              <h2>Query details</h2><p>Independent scrolling · 360px panel</p>
+              <div class="chart-card"><scope-chart id="drawer-metric" data-metric data-compact></scope-chart></div>
+              <h3>Profile</h3><div class="chart-card"><scope-flame id="drawer-profile" data-profile></scope-flame></div>
+              <h3>Trace</h3><div class="chart-card"><scope-trace id="drawer-trace" data-trace></scope-trace></div>
+              <p class="drawer-end">End of query details</p>
+            </aside>
+          </div>
+        </section>
+        <section data-panel="dashboard" class="dashboard-host" hidden>
+          <div class="host-chrome"><strong>Service analysis</strong><button type="button" id="open-report">Open report</button></div>
+          <div class="dashboard-grid">
+            <div class="chart-card"><scope-chart id="dashboard-line" data-metric data-compact></scope-chart></div>
+            <div class="chart-card"><scope-chart id="dashboard-bar" data-metric data-compact data-bar></scope-chart></div>
+            <div class="chart-card dashboard-wide"><scope-flame id="dashboard-profile" data-profile></scope-flame></div>
+            <div class="chart-card dashboard-wide"><scope-trace id="dashboard-trace" data-trace></scope-trace></div>
+          </div>
+        </section>
+        <section data-panel="sandbox" class="sandbox-host" hidden>
+          <div class="host-chrome"><strong>Isolated embed</strong><span id="frame-height" role="status">Preparing chart…</span></div>
+          <iframe id="isolated" title="Self-contained ScopeView metric and trace" sandbox="allow-scripts"></iframe>
+        </section>
+      </div>
+      <p class="lab-footer">Hover to read · click or Enter to pin · Escape to dismiss. Drag Host width to inspect reflow.</p>
+    </main>
+    <dialog id="report">
+      <div class="host-chrome"><strong>Query report</strong><button type="button" id="close-report">Close report</button></div>
+      <div class="chart-card"><scope-chart id="modal-metric" data-metric></scope-chart></div>
+      <div class="chart-card"><scope-flame id="modal-profile" data-profile></scope-flame></div>
+    </dialog>
+    <script type="module" src="./embedding.ts"></script>
+  </body>
+</html>

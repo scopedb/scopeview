@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ScopeView · trace and profile</title>
+  <link rel="stylesheet" href="../dist/fonts.css">
+  <style>
+    *{box-sizing:border-box}
+    body{margin:0;background:#f8f8f7;color:#181818;font:13px/1.5 Inter,system-ui,sans-serif}
+    main{max-width:1040px;margin:auto;padding:28px 24px 48px}
+    .brand{display:flex;align-items:center;gap:12px;padding-bottom:18px;border-bottom:1px solid #e5e5e5;margin-bottom:28px;color:#737373}
+    .brand strong{color:#181818;font-size:17px;font-weight:600;letter-spacing:-.03em}
+    .badge{margin-left:auto;font-size:11px;background:white;border:1px solid #e5e5e5;border-radius:5px;padding:2px 7px}
+    h1{font-size:24px;letter-spacing:-.04em;font-weight:600;margin:0 0 6px}
+    p{margin:0;color:#737373;line-height:1.6}
+    .controls{display:flex;gap:6px;flex-wrap:wrap;margin:20px 0}
+    button{font:inherit;background:white;border:1px solid #dedede;border-radius:6px;padding:6px 10px;cursor:pointer;transition:background 120ms}
+    button:hover{background:#f0f0f0}button:active{background:#e8e8e8}
+    button:focus-visible,a:focus-visible,summary:focus-visible{outline:2px solid #0876dd;outline-offset:3px}
+    section{background:white;border:1px solid #e2e2e2;border-radius:9px;margin:16px 0;overflow:hidden}
+    .help{padding:4px 0 12px;font-size:12px}
+    details{background:white;border:1px solid #e2e2e2;border-radius:6px;margin-top:12px}
+    summary{cursor:pointer;padding:10px 12px;color:#737373;font-size:12px}
+    pre{margin:0;padding:12px;border-top:1px solid #eee;overflow:auto;font-size:11px;max-height:240px}
+    nav{display:flex;gap:16px;margin-top:24px;font-size:12px}
+    a{color:#0876dd;text-decoration:none}a:hover{text-decoration:underline}
+    @media(max-width:480px){main{padding:16px 12px 32px}.brand{margin-bottom:22px}.controls{gap:6px}h1{font-size:22px}}
+    @media(prefers-reduced-motion:reduce){button{transition:none}}
+  </style>
+</head>
+<body><main>
+  <header class="brand"><strong>ScopeDB</strong><span>/</span><span>ScopeView</span><span class="badge">Canvas</span></header>
+  <h1>Trace &amp; profile</h1><p>Inspect execution time and CPU weight with the same chart infrastructure.</p>
+  <div class="controls"><button type="button" id="small">Example data</button><button type="button" id="large">10,000 parallel spans</button><button type="button" id="deep">2,000 stack frames</button></div>
+  <section><scope-trace id="trace"></scope-trace></section>
+  <section><scope-flame id="flame"></scope-flame></section>
+  <p class="help">Hover a span for a tooltip; click to pin full details. Drag to pan; Control/Command + wheel to zoom. Arrow keys inspect nodes, Enter pins, Escape dismisses.</p>
+  <details><summary>Original source event</summary><pre id="events" aria-live="polite">Select a node to see its original source.</pre></details>
+  <nav><a href="./interaction.html">Interaction states →</a><a href="./infra.html">Metrics &amp; categories →</a><a href="/">Embed gallery →</a></nav>
+</main><script type="module" src="./families.ts"></script></body>
+</html>

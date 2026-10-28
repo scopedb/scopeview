@@ -1,0 +1,154 @@
+:host {
+  display: block;
+  position: relative;
+  min-width: 0;
+  height: var(--scope-chart-height, var(--scope-report-height));
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+}
+* {
+  box-sizing: border-box;
+}
+[hidden] {
+  display: none !important;
+}
+.canvas,
+.decoration,
+.status {
+  position: absolute;
+  inset: 0;
+}
+.canvas:focus-visible {
+  outline: var(--scope-chart-focus-width) solid var(--color-text-brand);
+  outline-offset: -2px;
+}
+.decoration {
+  pointer-events: none;
+}
+.center,
+.status {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--scope-chart-space-panel);
+}
+.center {
+  display: flex;
+  flex-direction: column;
+}
+.center strong {
+  font-size: var(--scope-chart-font-size-center);
+}
+.center span,
+.status {
+  font-size: var(--scope-chart-font-size-caption);
+  color: var(--color-text-secondary);
+}
+.tooltip {
+  position: fixed;
+  padding: 0;
+  margin: 0;
+  inset: auto;
+  z-index: 2147483647;
+  width: max-content;
+  min-width: min(var(--scope-chart-tooltip-min-width), calc(100vw - 16px));
+  max-width: min(var(--scope-chart-tooltip-max-width), calc(100vw - 16px));
+  max-height: calc(100dvh - 16px);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-chart-inspector);
+  box-shadow: var(--shadow-tooltip);
+  font-size: var(--scope-chart-tooltip-font-size);
+  line-height: var(--scope-chart-tooltip-line-height);
+}
+.tooltip[popover]:not(:popover-open) {
+  display: none;
+}
+.tooltip.compact {
+  width: min(var(--scope-chart-tooltip-compact-width), calc(100vw - 16px));
+  max-width: min(var(--scope-chart-tooltip-compact-width), calc(100vw - 16px));
+}
+.tooltip-heading {
+  display: flex;
+  gap: var(--scope-chart-space-inline);
+  padding: var(--scope-chart-space-control) var(--scope-chart-space-reading) 0;
+}
+.tooltip-heading strong {
+  font-weight: 600;
+}
+.tooltip-context {
+  margin: var(--scope-chart-space-micro) var(--scope-chart-space-reading) 0;
+  font-size: var(--scope-chart-font-size-context);
+  color: var(--color-text-secondary);
+}
+.tooltip-body {
+  padding: var(--scope-chart-space-inline) var(--scope-chart-space-reading)
+    var(--scope-chart-space-control);
+}
+.tooltip-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  gap: var(--scope-chart-space-panel);
+  align-items: baseline;
+  padding: var(--scope-chart-tooltip-row-padding) 0;
+}
+.tooltip-label {
+  display: flex;
+  gap: var(--scope-chart-space-inline);
+  color: var(--color-text-secondary);
+}
+.tooltip-value {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+}
+.tooltip-row[data-format="code"] .tooltip-value {
+  font-family: var(--font-mono);
+}
+.tooltip-row[data-tone="danger"] .tooltip-value {
+  color: var(--color-text-danger);
+}
+.tooltip-row[data-tone="warning"] .tooltip-value {
+  color: var(--color-chart-warning);
+}
+.tooltip-row[data-active] {
+  font-weight: 600;
+}
+.swatch {
+  width: 3px;
+  height: 12px;
+  flex-shrink: 0;
+  align-self: center;
+  background: var(--series-color);
+  border-radius: 1px;
+}
+.tooltip-summary {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--scope-chart-space-section);
+  margin: 0 var(--scope-chart-space-reading) var(--scope-chart-space-control);
+  font-variant-numeric: tabular-nums;
+}
+.tooltip.sample {
+  min-width: min(var(--scope-chart-tooltip-sample-min-width), calc(100vw - 16px));
+}
+.tooltip.sample .tooltip-heading strong {
+  font-weight: 400;
+  color: var(--color-text-secondary);
+}
+.tooltip.sample .tooltip-context {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+.canvas[data-scope-panning] .plot {
+  cursor: grabbing;
+}

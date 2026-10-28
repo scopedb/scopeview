@@ -1,0 +1,160 @@
+:root {
+  font:
+    13px / 1.5 Inter,
+    system-ui,
+    sans-serif;
+  color: #263442;
+  background: #f4f6f8;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 1280px;
+  margin: auto;
+  padding: 24px;
+}
+header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid #dbe1e7;
+}
+header > a {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+nav {
+  margin-left: auto;
+  display: flex;
+  gap: 24px;
+  font-size: 12px;
+}
+.intro {
+  margin: 28px 0 20px;
+}
+.intro p {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: #297abd;
+  font-weight: 600;
+}
+h1 {
+  margin: 6px 0;
+  font-size: 34px;
+  line-height: 1.2;
+  letter-spacing: -0.04em;
+  font-weight: 600;
+}
+.intro span,
+footer,
+#feedback {
+  color: #687683;
+}
+.controls {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 20px;
+}
+button {
+  font: inherit;
+  color: inherit;
+  padding: 6px 10px;
+  border: 1px solid #cdd6de;
+  border-radius: 4px;
+  background: white;
+  cursor: pointer;
+}
+:is(button, a):focus-visible {
+  outline: 2px solid #297abd;
+  outline-offset: 3px;
+}
+.surface-headings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 8px;
+  color: #687683;
+  font-size: 11px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+article {
+  min-width: 0;
+  border: 1px solid #dbe1e7;
+  background: white;
+  border-radius: 6px;
+  overflow: hidden;
+}
+article > p {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 11px;
+  color: #687683;
+  border-top: 1px solid #e8edf1;
+}
+scope-chart {
+  display: block;
+  --scope-chart-height: 204px;
+}
+.dark {
+  color-scheme: dark;
+  background: #19212b;
+  border-color: #344352;
+}
+.dark > p {
+  color: #a8b6c4;
+  border-color: #344352;
+}
+.dark scope-chart {
+  color-scheme: dark;
+  --color-surface: #19212b;
+  --color-text-primary: #edf3f8;
+  --color-text-secondary: #b2c0cc;
+  --color-text-tertiary: #97a6b4;
+  --color-border: #435260;
+  --color-border-light: #344352;
+  --color-chart-grid: #2c3845;
+  --color-chart-axis: #768898;
+  --color-chart-baseline: #768898;
+}
+footer {
+  margin-top: 22px;
+  font-size: 11px;
+}
+@media (max-width: 760px) {
+  main {
+    padding: 16px;
+  }
+  .grid {
+    grid-template-columns: 1fr;
+  }
+  .surface-headings {
+    display: none;
+  }
+  nav {
+    gap: 12px;
+  }
+  header {
+    flex-wrap: wrap;
+  }
+  .controls {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "title": "Latency and throughput",
+  "data": {
+    "fields": [
+      {
+        "name": "latency",
+        "data_type": "number"
+      },
+      {
+        "name": "throughput",
+        "data_type": "number"
+      },
+      {
+        "name": "service",
+        "data_type": "string"
+      }
+    ],
+    "rows": [["12.5", "120", "api"], ["24.75", "80", "worker"], ["0", "0", "idle"]]
+  },
+  "spec": {
+    "visualization": "scatter",
+    "encoding": {
+      "x": "latency",
+      "y": "throughput",
+      "color": "service"
+    }
+  }
+}

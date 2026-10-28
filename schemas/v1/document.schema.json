@@ -1,0 +1,605 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:scopedb:scopeview:document:1",
+  "title": "ScopeView document version 1",
+  "description": "Strict version-1 document contract. Unknown fields are errors. The compiler validates field relationships, limits and source semantics.",
+  "$ref": "#/$defs/document",
+  "$defs": {
+    "text": {
+      "type": "string",
+      "maxLength": 4096
+    },
+    "nonemptyText": {
+      "type": "string",
+      "maxLength": 4096,
+      "minLength": 1
+    },
+    "dataType": {
+      "description": "string for labels/categories, number for all numeric values, timestamp for date/time. Cells remain strings or null.",
+      "enum": ["string", "number", "timestamp"]
+    },
+    "field": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/text"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "$ref": "#/$defs/text"
+            },
+            "data_type": {
+              "$ref": "#/$defs/dataType"
+            },
+            "occurrence": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["name", "data_type", "occurrence"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fieldList": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/field"
+      },
+      "minItems": 1,
+      "maxItems": 64
+    },
+    "axisEncoding": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/field"
+        },
+        "y": {
+          "$ref": "#/$defs/fieldList"
+        },
+        "series": {
+          "$ref": "#/$defs/field"
+        }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "scatterEncoding": {
+      "type": "object",
+      "properties": {
+        "x": {
+          "$ref": "#/$defs/field"
+        },
+        "y": {
+          "$ref": "#/$defs/field"
+        },
+        "size": {
+          "$ref": "#/$defs/field"
+        },
+        "color": {
+          "$ref": "#/$defs/field"
+        }
+      },
+      "required": ["x", "y"],
+      "additionalProperties": false
+    },
+    "distributionEncoding": {
+      "type": "object",
+      "properties": {
+        "category": {
+          "$ref": "#/$defs/field"
+        },
+        "value": {
+          "$ref": "#/$defs/field"
+        }
+      },
+      "required": ["category", "value"],
+      "additionalProperties": false
+    },
+    "aggregateEncoding": {
+      "type": "object",
+      "properties": {
+        "values": {
+          "$ref": "#/$defs/fieldList"
+        }
+      },
+      "required": ["values"],
+      "additionalProperties": false
+    },
+    "spec": {
+      "type": "object",
+      "properties": {
+        "visualization": {
+          "enum": ["line", "area", "bar", "scatter", "pie", "big-number", "top-list", "treemap"]
+        },
+        "encoding": {}
+      },
+      "required": ["visualization", "encoding"],
+      "anyOf": [
+        {
+          "properties": {
+            "visualization": {
+              "enum": ["line", "area", "bar"]
+            },
+            "encoding": {
+              "$ref": "#/$defs/axisEncoding"
+            }
+          }
+        },
+        {
+          "properties": {
+            "visualization": {
+              "const": "scatter"
+            },
+            "encoding": {
+              "$ref": "#/$defs/scatterEncoding"
+            }
+          }
+        },
+        {
+          "properties": {
+            "visualization": {
+              "enum": ["pie", "top-list", "treemap"]
+            },
+            "encoding": {
+              "$ref": "#/$defs/distributionEncoding"
+            }
+          }
+        },
+        {
+          "properties": {
+            "visualization": {
+              "const": "big-number"
+            },
+            "encoding": {
+              "$ref": "#/$defs/aggregateEncoding"
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "metricOptions": {
+      "type": "object",
+      "properties": {
+        "colorStrategy": {
+          "enum": ["auto", "consistent", "ranked", "semantic"]
+        },
+        "presentation": {
+          "enum": ["full", "sparkline"]
+        },
+        "labels": {
+          "enum": ["auto", "none"]
+        },
+        "stack": {
+          "type": "boolean"
+        },
+        "orientation": {
+          "enum": ["vertical", "horizontal"]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": {
+                "$ref": "#/$defs/field"
+              },
+              "divisor": {
+                "type": "string",
+                "maxLength": 4096,
+                "pattern": "^[1-9]\\d*$"
+              },
+              "unit": {
+                "$ref": "#/$defs/text"
+              },
+              "decimals": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 8
+              }
+            },
+            "required": ["field", "divisor"],
+            "additionalProperties": false
+          },
+          "minItems": 0,
+          "maxItems": 64
+        },
+        "colors": {
+          "type": "object",
+          "maxProperties": 10000,
+          "propertyNames": {
+            "$ref": "#/$defs/text"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^(?:#(?:[\\da-fA-F]{3}|[\\da-fA-F]{4}|[\\da-fA-F]{6}|[\\da-fA-F]{8})|var\\(--color-chart-(?:series-(?:[1-9]|10)|semantic-(?:info|success|warning|error|critical|debug|trace|unknown))(?:-line)?\\))$"
+          }
+        },
+        "interactive": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "entityOptions": {
+      "type": "object",
+      "properties": {
+        "interactive": {
+          "type": "boolean"
+        },
+        "rowHeight": {
+          "type": "number",
+          "minimum": 18,
+          "maximum": 64
+        }
+      },
+      "additionalProperties": false
+    },
+    "semantics": {
+      "type": "object",
+      "properties": {
+        "time": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "points"
+                },
+                "field": {
+                  "$ref": "#/$defs/field"
+                },
+                "window": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "integer",
+                      "minimum": -8640000000000000,
+                      "maximum": 8640000000000000
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": -8640000000000000,
+                      "maximum": 8640000000000000
+                    }
+                  },
+                  "required": ["start", "end"],
+                  "additionalProperties": false
+                }
+              },
+              "required": ["kind", "field"],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "const": "buckets"
+                },
+                "field": {
+                  "$ref": "#/$defs/field"
+                },
+                "window": {
+                  "type": "object",
+                  "properties": {
+                    "start": {
+                      "type": "integer",
+                      "minimum": -8640000000000000,
+                      "maximum": 8640000000000000
+                    },
+                    "end": {
+                      "type": "integer",
+                      "minimum": -8640000000000000,
+                      "maximum": 8640000000000000
+                    }
+                  },
+                  "required": ["start", "end"],
+                  "additionalProperties": false
+                },
+                "intervalMs": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                "coverage": {
+                  "enum": ["complete", "limited", "unknown"]
+                },
+                "completeThrough": {
+                  "type": "integer",
+                  "minimum": -8640000000000000,
+                  "maximum": 8640000000000000
+                },
+                "valueKind": {
+                  "enum": ["count", "number"]
+                }
+              },
+              "required": ["kind", "field", "intervalMs", "coverage"],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "provenance": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "enum": ["rows", "bins", "entities"]
+            },
+            "scope": {
+              "enum": ["returned", "sample", "matching"]
+            },
+            "approximate": {
+              "type": "boolean"
+            },
+            "description": {
+              "$ref": "#/$defs/text"
+            }
+          },
+          "required": ["kind", "scope"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "metric": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/header"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "metric"
+            },
+            "data": {
+              "$ref": "#/$defs/data"
+            },
+            "spec": {
+              "$ref": "#/$defs/spec"
+            },
+            "options": {
+              "$ref": "#/$defs/metricOptions"
+            },
+            "semantics": {
+              "$ref": "#/$defs/semantics"
+            }
+          },
+          "required": ["data", "spec"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "span": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/entity"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "startTimeNs": {
+              "type": "string",
+              "pattern": "^-?\\d{1,40}$"
+            },
+            "endTimeNs": {
+              "type": "string",
+              "pattern": "^-?\\d{1,40}$"
+            },
+            "service": {
+              "$ref": "#/$defs/text"
+            },
+            "status": {
+              "enum": ["unset", "ok", "error"]
+            }
+          },
+          "required": ["startTimeNs", "endTimeNs"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "frame": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/entity"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "selfWeight": {
+              "type": "string",
+              "pattern": "^\\d{1,40}$"
+            },
+            "file": {
+              "$ref": "#/$defs/text"
+            },
+            "line": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": ["selfWeight"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "trace": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/header"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "trace"
+            },
+            "spans": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/span"
+              },
+              "minItems": 0,
+              "maxItems": 100000
+            },
+            "coverage": {
+              "enum": ["complete", "partial", "unknown"]
+            },
+            "options": {
+              "$ref": "#/$defs/entityOptions"
+            }
+          },
+          "required": ["kind", "spans"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "profile": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/header"
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "profile"
+            },
+            "unit": {
+              "$ref": "#/$defs/nonemptyText"
+            },
+            "frames": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/frame"
+              },
+              "minItems": 0,
+              "maxItems": 100000
+            },
+            "options": {
+              "$ref": "#/$defs/entityOptions"
+            }
+          },
+          "required": ["kind", "unit", "frames"]
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "document": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/metric"
+        },
+        {
+          "$ref": "#/$defs/trace"
+        },
+        {
+          "$ref": "#/$defs/profile"
+        }
+      ]
+    },
+    "header": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 1
+        },
+        "title": {
+          "$ref": "#/$defs/text"
+        },
+        "description": {
+          "$ref": "#/$defs/text"
+        }
+      },
+      "required": ["version"]
+    },
+    "data": {
+      "type": "object",
+      "properties": {
+        "fields": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "$ref": "#/$defs/text"
+              },
+              "data_type": {
+                "$ref": "#/$defs/dataType"
+              }
+            },
+            "required": ["name", "data_type"],
+            "additionalProperties": false
+          },
+          "minItems": 1,
+          "maxItems": 64
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/text"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 64
+          },
+          "minItems": 0,
+          "maxItems": 10000
+        }
+      },
+      "required": ["fields", "rows"],
+      "additionalProperties": false
+    },
+    "entity": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/nonemptyText"
+        },
+        "name": {
+          "$ref": "#/$defs/nonemptyText"
+        },
+        "parentId": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/nonemptyText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "attributes": {
+          "type": "object",
+          "maxProperties": 64,
+          "propertyNames": {
+            "$ref": "#/$defs/text"
+          },
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/text"
+              },
+              {
+                "type": ["number", "boolean", "null"]
+              }
+            ]
+          }
+        }
+      },
+      "required": ["id", "name"]
+    }
+  }
+}

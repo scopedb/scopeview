@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ScopeView · metric inspection</title>
+  <link rel="stylesheet" href="./metric-inspection.css">
+</head>
+<body>
+  <main>
+    <header><a href="/">ScopeDB</a><span>/ ScopeView</span><nav><a href="./linked-analysis.html">Linked analysis</a><a href="./visual-system.html">Visual system</a></nav></header>
+    <div class="intro"><p>METRIC INSPECTION</p><h1>Follow the value.</h1><span>Hover to read. Click to select, then compare another position. Lock keeps the reading in place.</span></div>
+    <div class="controls"><button id="reset" type="button">Reset selections</button><span id="feedback" role="status">Independent selections · shared time cursor</span></div>
+    <div class="surface-headings"><span>Light surface</span><span>Dark surface</span></div>
+    <div class="grid">
+      <article><scope-chart id="grouped-light"></scope-chart><p>Grouped bars · signed values and long category labels</p></article>
+      <article class="dark"><scope-chart id="grouped-dark"></scope-chart><p>Series color stays recognizable when its bar is highlighted</p></article>
+      <article><scope-chart id="stacked-light"></scope-chart><p>Five-minute buckets · returned counts · exact stack total</p></article>
+      <article class="dark"><scope-chart id="stacked-dark"></scope-chart><p>Hover a segment to identify its series; empty bucket space reads the whole stack</p></article>
+      <article><scope-chart id="line-light"></scope-chart><p>One-minute observations · NULL and zero are distinct · no interpolation</p></article>
+      <article class="dark"><scope-chart id="line-dark"></scope-chart><p>The same real time links across different sampling intervals</p></article>
+      <article><scope-chart id="count-light"></scope-chart><p>101 one-second buckets · 279 returned logs</p></article>
+      <article class="dark"><scope-chart id="count-dark"></scope-chart><p>Compact source reading · straight connections · ScopeView colors</p></article>
+    </div>
+    <footer>All data is synthetic. Rendering and inspection run locally in the independent library.</footer>
+  </main>
+  <script type="module" src="./metric-inspection.ts"></script>
+</body>
+</html>

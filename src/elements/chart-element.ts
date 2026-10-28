@@ -1,0 +1,895 @@
+import { object, boolean } from '../data/validation.js';
+import {
+  compileChart,
+  type ChartDocument,
+  type CompiledChart
+} from '../families/metrics/document.js';
+import type { ChartDisplayType } from '../families/metrics/spec.js';
+import { compactFormat } from '../data/format.js';
+import { prepareAggregateValues } from '../families/metrics/prepared.js';
+import { legendReadings } from '../families/metrics/readings.js';
+import type { ChartRenderer } from './plot-contract.js';
+import type { ChartInteraction, Inspect, Position } from '../core/scene.js';
+import { ChartSession } from '../core/session.js';
+import { inspectionText } from '../core/labels.js';
+import type { RangeSelectionBinding } from '../core/range.js';
+import {
+  parseViewState,
+  type MetricViewState,
+  type DocumentUpdateOptions,
+  type ViewStateChangeDetail
+} from '../core/view-state.js';
+import { parseLinkedHighlight, type LinkedHighlight } from '../core/link-group.js';
+import { formatQuantity, type DataProvenance } from '../data/semantics.js';
+import { SCOPE_CHART_STYLES } from '../theme/styles.js';
+import {
+  renderInspection,
+  hideInspection,
+  positionInspection,
+  dockInspection
+} from '../ui/inspection.js';
+import { node } from '../ui/dom.js';
+import {
+  upgradeProperties,
+  documentMutated,
+  ElementTheme,
+  watchColorScheme,
+  type ScopeTheme
+} from './lifecycle.js';
+import {
+  parseComponentOptions,
+  type MetricComponentOptions
+} from '../families/component-options.js';
+import {
+  metricControls,
+  readControls,
+  visibleControls,
+  renderToolbar,
+  ControlEvents,
+  inspectionFocus,
+  type ScopeChartAction
+} from './controls.js';
+import type { ScopeCommonEventDetails, ScopeEventListener, ScopeEventMap } from './events.js';
+
+export interface ScopeInspectionDetail {
+  /** Family discriminator shared with trace and profile inspection details. */
+  kind: 'metric';
+  key: string | null;
+  pinned: boolean;
+  series?: string | null;
+  cursorTimeMs?: number | null;
+  time?: { start: number; end?: number; partial?: boolean };
+  rowIndices: number[];
+  rows: (string | null)[][];
+  provenance?: DataProvenance;
+}
+export interface ScopeChartReadyDetail {
+  visualization: ChartDisplayType;
+  rows: number;
+}
+export interface ScopeVisibilityChangeDetail {
+  hidden: string[];
+}
+export interface ScopeChartEventDetails extends ScopeCommonEventDetails {
+  'scope-ready': ScopeChartReadyDetail;
+  'scope-inspect': ScopeInspectionDetail;
+  'scope-select': ScopeInspectionDetail;
+  'scope-visibility-change': ScopeVisibilityChangeDetail;
+}
+export type ScopeChartEventMap = ScopeEventMap<ScopeChartEventDetails>;
+
+/** Browser-only entry point. Import the package root for SSR/data compilation. */
+export class ScopeChartElement extends HTMLElement {
+  static observedAttributes = ['loading', 'error', 'theme', 'style', 'class'];
+  #compiled: CompiledChart | null = null;
+  #ui: MetricComponentOptions = {};
+  get #options() {
+    return {
+      ...this.#ui,
+      interactive:
+        this.#compiled?.document.options?.interactive ??
+        this.#compiled?.document.options?.presentation !== 'sparkline'
+    };
+  }
+  #error: string | null = null;
+  #session = new ChartSession('compare');
+  #plot: ChartRenderer | null = null;
+  #frame = 0;
+  #revision = 0;
+  #rangeSelection: RangeSelectionBinding | null = null;
+  #mutation: MutationObserver | null = null;
+  #events: AbortController | null = null;
+  #page = 0;
+  #propertySet = false;
+  #pendingPin: string | null | undefined;
+  #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
+  #lastState = '';
+  #linkedHighlight: LinkedHighlight | null = null;
+  #stateTransaction = false;
+  #cursorTimeMs: number | null = null;
+  #readingNeighbors: string[] = [];
+  #selectedNeighbors: string[] = [];
+  #root: ShadowRoot;
+  #appearance = new ElementTheme(this);
+  #controlEvents = new ControlEvents();
+  constructor() {
+    super();
+    this.#root = this.attachShadow({ mode: 'open' });
+    const css = node('style');
+    css.textContent = SCOPE_CHART_STYLES;
+    this.#root.append(css);
+    const shell = node('section', 'root');
+    shell.innerHTML = `<header hidden><h2></h2><p class="description" hidden></p></header>
+      <div class="viewport" role="region" aria-label="ScopeDB chart" aria-describedby="help">
+        <div class="canvas" aria-hidden="true"></div><div class="decoration" aria-hidden="true"></div>
+        <div class="metrics" hidden></div><div class="status" role="status">Provide a chart document.</div>
+      </div>
+      <div class="legend" aria-label="Chart series"></div>
+      <slot name="toolbar"><div class="toolbar"><button class="inspect" type="button" aria-describedby="help" disabled>Inspect chart</button><button class="data" type="button" aria-expanded="false" aria-controls="raw" disabled>View data</button><button class="restore" type="button" disabled>Show all</button><span class="attribution">ScopeDB</span></div></slot>
+      <div class="tooltip" role="tooltip" hidden></div>
+      <div class="raw" id="raw" hidden></div><div class="pagination" hidden><button type="button" class="previous">Previous</button><span></span><button type="button" class="next">Next</button></div>
+      <p class="sr-only" id="help">Arrows inspect, Home/End jump, Enter/Space select, Escape dismisses. Hover to compare; Lock fixes the reading. Shift-click a legend item to isolate it. View data shows original values.</p>
+      <span class="sr-only live" role="status" aria-live="polite" aria-atomic="true"></span>`;
+    this.#root.append(shell);
+  }
+  #el<T extends HTMLElement = HTMLElement>(selector: string) {
+    return this.#root.querySelector<T>(selector)!;
+  }
+  get document(): ChartDocument | null {
+    return this.#compiled ? structuredClone(this.#compiled.document) : null;
+  }
+  set document(value: unknown) {
+    this.updateDocument(value);
+  }
+  /** Patch host UI without resetting the document or interaction state. */
+  configure(options: MetricComponentOptions) {
+    this.#ui = { ...this.#ui, ...parseComponentOptions(options, 'metric') };
+    this.#buildLegend();
+    this.#table();
+    this.refresh();
+  }
+  /** Replace data explicitly; preservation requires compatible family-owned identities. */
+  updateDocument(value: unknown, options: DocumentUpdateOptions = {}) {
+    object(options, 'options', ['preserveViewState']);
+    if (options.preserveViewState !== undefined)
+      boolean(options.preserveViewState, 'options.preserveViewState');
+    const previous = options.preserveViewState ? this.viewState : null;
+    this.#stateTransaction = true;
+    this.#propertySet = true;
+    this.#clearInspection();
+    this.#session.reset();
+    this.#linkedHighlight = null;
+    if (this.#plot) this.#plot.linkedHighlight = null;
+    this.rangeSelection = null;
+    this.#page = 0;
+    try {
+      this.#compiled = value === null ? null : compileChart(value);
+      this.#error = null;
+    } catch (error) {
+      this.#compiled = null;
+      this.#error = error instanceof Error ? error.message : 'Invalid chart document.';
+    }
+    if (previous && this.#compiled) this.#applyState(previous);
+    this.#stateReason = 'document';
+    this.#buildLegend();
+    this.#legendState();
+    this.#table();
+    this.#stateTransaction = false;
+    this.refresh();
+  }
+  get viewState(): MetricViewState {
+    return {
+      version: 1,
+      kind: 'metric',
+      pinnedKey:
+        this.#pendingPin !== undefined ? this.#pendingPin : (this.#session.selected?.key ?? null),
+      hiddenSeries: [...this.#session.hidden].sort()
+    };
+  }
+  set viewState(value: MetricViewState) {
+    const state = parseViewState(value);
+    if (state.kind !== 'metric') throw new TypeError('A metric chart needs metric view state.');
+    this.#applyState(state);
+    this.#stateReason = 'restore';
+    this.#legendState();
+    this.refresh();
+  }
+  /** Explicit reading lock, independent of persistent selection and portable view state. */
+  get tooltipLocked(): boolean {
+    return this.#session.tooltipLocked;
+  }
+  set tooltipLocked(value: boolean) {
+    this.#session.lockTooltip(value);
+    this.#showInspection(null, false, false);
+  }
+  #applyState(state: MetricViewState) {
+    const names = new Set(this.#compiled?.series.map((series) => series.name));
+    this.#session.setHidden(state.hiddenSeries.filter((name) => names.has(name)));
+    this.#pendingPin = state.pinnedKey;
+  }
+  get linkedHighlight() {
+    return this.#linkedHighlight && { ...this.#linkedHighlight };
+  }
+  set linkedHighlight(value: LinkedHighlight | null) {
+    this.#linkedHighlight = parseLinkedHighlight(value);
+    if (this.#plot) this.#plot.linkedHighlight = this.#linkedHighlight;
+  }
+  #stateChanged(reason: ViewStateChangeDetail['reason'] = 'interaction') {
+    if (this.#stateTransaction) return;
+    const state = this.viewState,
+      key = JSON.stringify(state);
+    if (key === this.#lastState) return;
+    this.#lastState = key;
+    this.#emit('scope-view-state-change', { state, reason } satisfies ViewStateChangeDetail);
+  }
+  /** Ephemeral trusted binding; never serialized into a chart document. */
+  set rangeSelection(binding: RangeSelectionBinding | null) {
+    if (this.#plot) this.#plot.rangeSelection = binding;
+    this.#rangeSelection = binding;
+  }
+  get rangeSelection() {
+    return this.#rangeSelection;
+  }
+  get loading() {
+    return this.hasAttribute('loading');
+  }
+  set loading(value: boolean) {
+    this.toggleAttribute('loading', value);
+  }
+  /** Host-supplied error message, reflected to the `error` attribute. Set null to clear it. */
+  get error() {
+    return this.getAttribute('error');
+  }
+  set error(value: string | null) {
+    if (value === null) this.removeAttribute('error');
+    else this.setAttribute('error', value);
+  }
+  /** Host appearance; mode is reflected to the `theme` attribute. */
+  get theme(): ScopeTheme {
+    return this.#appearance.value;
+  }
+  set theme(value: ScopeTheme) {
+    this.#appearance.value = value;
+  }
+  addEventListener<K extends keyof ScopeChartEventMap>(
+    type: K,
+    listener: ScopeEventListener<ScopeChartElement, ScopeChartEventMap[K]>,
+    options?: boolean | AddEventListenerOptions
+  ): void;
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ): void;
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions
+  ) {
+    super.addEventListener(type, listener, options);
+  }
+  removeEventListener<K extends keyof ScopeChartEventMap>(
+    type: K,
+    listener: ScopeEventListener<ScopeChartElement, ScopeChartEventMap[K]>,
+    options?: boolean | EventListenerOptions
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions
+  ): void;
+  removeEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | EventListenerOptions
+  ) {
+    super.removeEventListener(type, listener, options);
+  }
+  get controls() {
+    return visibleControls(this.#root, metricControls, this.#options);
+  }
+  /** Return false for unavailable actions. Host toolbars use the same operations as built-in controls. */
+  performAction(action: ScopeChartAction): boolean {
+    if (
+      !readControls(this.#root, metricControls, this.#options).some(
+        (control) => control.action === action && !control.disabled
+      )
+    )
+      return false;
+    if (action === 'inspect') {
+      if (!this.#session.active) this.#step('Home');
+      inspectionFocus(this.#root).focus({ preventScroll: true });
+    } else if (action === 'toggle-data') {
+      const raw = this.#el('.raw');
+      raw.hidden = !raw.hidden;
+      this.#el('.data').setAttribute('aria-expanded', String(!raw.hidden));
+      this.#el('.data').textContent = raw.hidden ? 'View data' : 'Hide data';
+      this.#table();
+    } else if (action === 'show-all') {
+      this.#session.showAll();
+      this.#visibility();
+    }
+    this.#notifyControls();
+    return true;
+  }
+  #notifyControls() {
+    this.#controlEvents.notify(this, this.controls);
+  }
+  connectedCallback() {
+    upgradeProperties(this, [
+      'document',
+      'loading',
+      'error',
+      'theme',
+      'viewState',
+      'linkedHighlight',
+      'tooltipLocked'
+    ]);
+    this.#events?.abort();
+    this.#events = new AbortController();
+    const signal = this.#events.signal;
+    watchColorScheme(() => this.refresh(), signal);
+    for (const [action, selector] of Object.entries(metricControls))
+      this.#el(selector).addEventListener(
+        'click',
+        () => this.performAction(action as ScopeChartAction),
+        { signal }
+      );
+    this.#el('slot[name="toolbar"]').addEventListener('slotchange', () => this.refresh(), {
+      signal
+    });
+    this.#el('.viewport').addEventListener(
+      'keydown',
+      (event) => this.#keyboard(event as KeyboardEvent),
+      { signal }
+    );
+    this.#el('.inspect').addEventListener(
+      'keydown',
+      (event) => this.#keyboard(event as KeyboardEvent),
+      { signal }
+    );
+    this.#root.addEventListener(
+      'keydown',
+      (event) => {
+        if ((event as KeyboardEvent).key === 'Escape' && this.#session.active) {
+          event.preventDefault();
+          this.#clearInspection();
+          inspectionFocus(this.#root).focus();
+        }
+      },
+      { signal }
+    );
+    this.#el('.previous').addEventListener(
+      'click',
+      () => {
+        this.#page--;
+        this.#table();
+      },
+      { signal }
+    );
+    this.#el('.next').addEventListener(
+      'click',
+      () => {
+        this.#page++;
+        this.#table();
+      },
+      { signal }
+    );
+    const outside = (event: Event) => {
+      if (this.#ui.dismissOnOutside !== false && !event.composedPath().includes(this))
+        this.#clearInspection();
+    };
+    document.addEventListener('pointerdown', outside, { signal });
+    document.addEventListener('focusin', outside, { signal });
+    window.addEventListener(
+      'scroll',
+      (event) => {
+        if (event.composedPath().includes(this.#el('.tooltip'))) return;
+        if (this.#session.pinned || this.#session.keyboardInspection) this.#placeTooltip();
+        else this.#clearInspection();
+      },
+      { capture: true, signal }
+    );
+    this.#mutation = new MutationObserver((records) => {
+      if (!this.#propertySet && documentMutated(records)) this.#readJSON();
+    });
+    this.#mutation.observe(this, { childList: true, subtree: true, characterData: true });
+    if (!this.#propertySet) this.#readJSON();
+    this.refresh();
+  }
+  disconnectedCallback() {
+    this.#revision++;
+    cancelAnimationFrame(this.#frame);
+    this.#frame = 0;
+    this.#mutation?.disconnect();
+    this.#events?.abort();
+    this.#clearInspection();
+    this.#dispose();
+  }
+  attributeChangedCallback() {
+    this.refresh();
+  }
+  /** Repaint after inherited design tokens or font availability changes. */
+  refresh() {
+    this.#revision++;
+    if (!this.isConnected || this.#frame) return;
+    this.#frame = requestAnimationFrame(() => {
+      this.#frame = 0;
+      void this.#render(this.#revision);
+    });
+  }
+  #readJSON() {
+    const script = this.querySelector<HTMLScriptElement>(
+      ':scope > script[type="application/json"]'
+    );
+    if (!script) return;
+    try {
+      this.document = JSON.parse(script.textContent ?? '');
+    } catch {
+      this.document = undefined;
+      this.#error = 'Invalid JSON. Check the chart document syntax.';
+    }
+    this.#propertySet = false;
+  }
+  #emit<K extends keyof ScopeChartEventDetails>(name: K, detail: ScopeChartEventDetails[K]) {
+    this.#notifyControls();
+    this.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
+  }
+  #status(state: string, message: string | null) {
+    this.setAttribute('data-state', state);
+    this.#el('.viewport').setAttribute('aria-busy', String(state === 'loading'));
+    const status = this.#el('.status');
+    status.hidden = message === null;
+    status.className = `status ${state}`;
+    status.textContent = message;
+    status.setAttribute('role', state === 'error' ? 'alert' : 'status');
+    this.#notifyControls();
+  }
+  #dispose() {
+    this.#plot?.dispose();
+    this.#plot = null;
+    this.#session.setModel(null);
+  }
+  /** Load the browser renderer only when a plotted chart is needed. */
+  protected async renderer() {
+    const { Plot } = await import('./plot.js');
+    return (canvas: HTMLElement, decoration: HTMLElement, inspect: Inspect): ChartRenderer =>
+      new Plot(canvas, decoration, inspect, () => this.refresh());
+  }
+  async #render(revision: number) {
+    const compiled = this.#compiled;
+    const miniature = compiled?.document.options?.presentation === 'sparkline';
+    const interactive = compiled?.document.options?.interactive ?? !miniature;
+    renderToolbar(this.#root, this.#options, metricControls, !interactive);
+    this.#el('.root').setAttribute('aria-hidden', String(!interactive));
+    this.#el('.viewport').tabIndex =
+      interactive && inspectionFocus(this.#root) === this.#el('.viewport') && !this.#rangeSelection
+        ? 0
+        : -1;
+    this.#el('.canvas').style.pointerEvents = interactive ? '' : 'none';
+    const title = compiled?.document.title ?? '',
+      description = compiled?.document.description ?? '';
+    this.#el('header').hidden = miniature || this.#ui.header === false || (!title && !description);
+    this.#el('h2').textContent = title;
+    this.#el('h2').hidden = !title;
+    this.#el('.description').textContent = description;
+    this.#el('.description').hidden = !description;
+    this.#el<HTMLButtonElement>('.data').disabled = !compiled || this.#ui.dataTable === false;
+    this.#el('.metrics').hidden = true;
+    const error = this.getAttribute('error') ?? this.#error;
+    const knownTimeFrame =
+      compiled?.axisModel?.kind === 'time-series' && !!compiled.axisModel.window;
+    if (error || this.loading || !compiled || (!compiled.series.length && !knownTimeFrame)) {
+      const saved = this.loading && compiled && !error ? this.viewState : null;
+      if (saved) this.#stateTransaction = true;
+      this.#el<HTMLButtonElement>('.inspect').disabled = true;
+      this.#clearInspection();
+      this.#dispose();
+      if (saved) this.#applyState(saved);
+      this.#stateTransaction = false;
+      if (!compiled || error) this.#pendingPin = undefined;
+      this.#stateChanged(this.#stateReason);
+      if (error) {
+        this.#status('error', error);
+        this.#emit('scope-error', { message: error });
+      } else if (this.loading) this.#status('loading', 'Loading chart…');
+      else
+        this.#status(
+          'empty',
+          compiled
+            ? 'No plottable data. View data to inspect the returned values.'
+            : 'Provide a chart document.'
+        );
+      return;
+    }
+    try {
+      if (compiled.config.mapping.kind === 'aggregate') {
+        this.#el<HTMLButtonElement>('.inspect').disabled = true;
+        this.#clearInspection(
+          this.#session.active !== null,
+          this.#session.selected !== null,
+          this.#stateReason
+        );
+        this.#dispose();
+        const metrics = this.#el('.metrics');
+        metrics.replaceChildren();
+        metrics.hidden = false;
+        for (const value of prepareAggregateValues(compiled.dataset, compiled.config.mapping)) {
+          const metric = node('div', 'metric');
+          const column = compiled.dataset.columns.find((c) => c.id === value.id)!;
+          const display = compiled.displays.get(value.id);
+          const raw = compiled.document.data.rows[0][column.columnIndex];
+          const compact =
+              value.value === null || display
+                ? formatQuantity(raw, display)
+                : compactFormat(value.value),
+            exact = formatQuantity(raw, display);
+          metric.append(
+            node('div', 'metric-label', value.label),
+            node('div', 'metric-value', compact)
+          );
+          if (compact !== exact) metric.append(node('div', 'metric-exact', exact));
+          metrics.append(metric);
+        }
+      } else {
+        if (!this.#plot) {
+          this.#status('loading', 'Loading chart…');
+          const create = await this.renderer();
+          if (revision !== this.#revision || !this.isConnected) return;
+          this.#plot = create(
+            this.#el('.canvas'),
+            this.#el('.decoration'),
+            (value, position, pin, series, neighbors) =>
+              this.#inspect(value, position, pin, false, series, neighbors)
+          );
+        }
+        this.#plot.update(compiled, this.#session.hidden, this.#ui.axes ?? 'full');
+        this.#plot.linkedHighlight = this.#linkedHighlight;
+        this.#plot.rangeSelection = this.#rangeSelection;
+        const previous = this.#session.active,
+          pinned = this.#session.selected !== null;
+        this.#session.setModel(this.#plot.model);
+        if (this.#pendingPin !== undefined) {
+          this.#session.restorePin(interactive ? this.#pendingPin : null);
+          this.#pendingPin = undefined;
+        }
+        if (pinned && !this.#session.selected && this.#session.active && !this.#stateTransaction)
+          this.#emit('scope-select', this.#inspectionDetail(null, false));
+        if (previous && !this.#session.active)
+          this.#clearInspection(true, pinned, this.#stateReason);
+        else if (this.#session.active) {
+          this.#showInspection(null);
+        } else {
+          this.#plot.focus(null);
+          hideInspection(this.#el('.tooltip'));
+          this.#el('.inspect').removeAttribute('data-active');
+        }
+        this.#el('.viewport').setAttribute(
+          'aria-label',
+          title || this.#plot.model?.ariaLabel || 'ScopeDB chart'
+        );
+        this.#el<HTMLButtonElement>('.inspect').disabled =
+          !interactive || !this.#plot.model?.interactions.length;
+      }
+      this.#status('ready', null);
+      this.#stateChanged(this.#stateReason);
+      this.#stateReason = 'reconcile';
+      this.#emit('scope-ready', {
+        visualization: compiled.config.displayType,
+        rows: compiled.dataset.rows.length
+      });
+    } catch (error) {
+      this.#el<HTMLButtonElement>('.inspect').disabled = true;
+      this.#clearInspection();
+      this.#dispose();
+      const message = error instanceof Error ? error.message : 'Chart rendering failed.';
+      this.#status('error', message);
+      this.#emit('scope-error', { message });
+    }
+  }
+  #buildLegend() {
+    const legend = this.#el('.legend');
+    legend.replaceChildren();
+    const compiled = this.#compiled;
+    const option = this.#ui.legend;
+    const columns = typeof option === 'object' ? option.columns : [];
+    legend.toggleAttribute('data-columns', columns.length > 0);
+    legend.style.setProperty('--legend-columns', String(columns.length));
+    legend.setAttribute(
+      'aria-label',
+      columns.length ? 'Series summaries of returned observations' : 'Series'
+    );
+    legend.hidden =
+      !compiled ||
+      this.#ui.legend === false ||
+      compiled.document.options?.presentation === 'sparkline' ||
+      compiled.document.options?.interactive === false ||
+      compiled.series.length < (columns.length ? 1 : 2) ||
+      compiled.config.mapping.kind === 'aggregate';
+    const readings = compiled ? legendReadings(compiled, columns) : new Map<string, string[]>();
+    if (columns.length) {
+      const header = node('div', 'legend-head');
+      header.append(node('span', '', 'Series'));
+      for (const column of columns)
+        header.append(node('span', '', column[0].toUpperCase() + column.slice(1)));
+      legend.append(header);
+    }
+    for (const series of compiled?.series ?? []) {
+      const button = node('button');
+      button.type = 'button';
+      button.setAttribute('aria-pressed', 'true');
+      button.setAttribute(
+        'aria-label',
+        [
+          series.name,
+          ...columns.map((column, i) => `${column}: ${readings.get(series.name)?.[i] ?? '—'}`)
+        ].join(', ')
+      );
+      button.style.setProperty(
+        '--series-color',
+        compiled?.config.displayType === 'line' ? (series.lineColor ?? series.color) : series.color
+      );
+      const name = node('span', 'legend-series');
+      name.append(node('span', 'swatch'), node('span', 'name', series.name));
+      button.append(name);
+      for (const value of readings.get(series.name) ?? [])
+        button.append(node('span', 'legend-value', value));
+      button.addEventListener('click', (event) => {
+        this.#session.toggleSeries(
+          series.name,
+          compiled!.series.map((value) => value.name),
+          event.shiftKey
+        );
+        this.#visibility();
+      });
+      legend.append(button);
+    }
+    this.#el<HTMLButtonElement>('.restore').disabled = true;
+  }
+  #visibility() {
+    this.#legendState();
+    this.#clearInspection();
+    this.refresh();
+    this.#emit('scope-visibility-change', { hidden: [...this.#session.hidden] });
+    this.#stateChanged();
+  }
+  #legendState() {
+    const buttons = this.#root.querySelectorAll('.legend button');
+    const hidden = this.#session.hidden;
+    this.#compiled?.series.forEach((series, i) => {
+      buttons[i]?.setAttribute('aria-pressed', String(!hidden.has(series.name)));
+    });
+    this.#el<HTMLButtonElement>('.restore').disabled =
+      !this.#session.hidden.size || this.#compiled?.document.options?.interactive === false;
+    this.#notifyControls();
+  }
+  #inspectionDetail(
+    value = this.#session.active,
+    pinned = this.#session.pinned
+  ): ScopeInspectionDetail {
+    const sources = value?.sources ?? [];
+    const time = value ? this.#plot?.model?.interactionByKey.get(value.key)?.time : undefined;
+    return {
+      kind: 'metric',
+      key: value?.key ?? null,
+      pinned,
+      series: value ? this.#session.series : null,
+      cursorTimeMs: this.#cursorTimeMs,
+      ...(time ? { time: { ...time } } : {}),
+      rows: sources.map((row) => [...row]),
+      rowIndices: sources.map((row) => this.#compiled!.document.data.rows.indexOf(row)),
+      ...(this.#compiled?.document.semantics?.provenance
+        ? { provenance: structuredClone(this.#compiled.document.semantics.provenance) }
+        : {})
+    };
+  }
+  #clearInspection(
+    had = this.#session.active !== null,
+    pinned = this.#session.selected !== null,
+    reason: ViewStateChangeDetail['reason'] = 'interaction'
+  ) {
+    this.#pendingPin = undefined;
+    this.#cursorTimeMs = null;
+    this.#readingNeighbors = [];
+    this.#selectedNeighbors = [];
+    this.#session.clearInspection();
+    this.#plot?.focus(null);
+    this.#el('.inspect').removeAttribute('data-active');
+    hideInspection(this.#el('.tooltip'));
+    this.#el('.live').textContent = '';
+    if (had && !this.#stateTransaction) this.#emit('scope-inspect', this.#inspectionDetail());
+    if (pinned && !this.#stateTransaction) this.#emit('scope-select', this.#inspectionDetail());
+    this.#stateChanged(reason);
+  }
+  #inspect(
+    value: ChartInteraction | null,
+    position: Position | null,
+    pin: boolean,
+    keyboard = false,
+    series: string | null = null,
+    neighbors?: readonly ChartInteraction[]
+  ) {
+    const had = this.#session.active !== null,
+      previousKey = this.#session.active?.key,
+      selected = this.#session.selected?.key ?? null;
+    if (!this.#session.inspect(value?.key ?? null, pin, keyboard, series)) return;
+    this.#readingNeighbors = keyboard ? [] : (neighbors?.map((target) => target.key) ?? []);
+    if (pin || keyboard)
+      this.#selectedNeighbors = this.#session.selected ? this.#readingNeighbors : [];
+    this.#cursorTimeMs = value
+      ? (this.#plot?.model?.interactionByKey.get(value.key)?.time?.start ?? null)
+      : null;
+    const changed = selected !== (this.#session.selected?.key ?? null);
+    if (!value) position = null;
+    value = this.#session.active;
+    if (!value) {
+      this.#clearInspection(had, selected !== null);
+      return;
+    }
+    if (pin)
+      inspectionFocus(this.#root).focus({
+        preventScroll: true
+      });
+    this.#showInspection(position, keyboard, position !== null || previousKey !== value.key);
+    this.#emit('scope-inspect', this.#inspectionDetail());
+    if (changed)
+      this.#emit(
+        'scope-select',
+        this.#inspectionDetail(this.#session.selected, this.#session.selected !== null)
+      );
+    this.#stateChanged();
+  }
+  #showInspection(position: Position | null, keyboard = false, place = true) {
+    const value = this.#session.active;
+    if (!value) return;
+    this.#plot?.focus(
+      value,
+      this.#session.pinned,
+      this.#session.series,
+      this.#session.selected?.key ?? null
+    );
+    this.#el('.inspect').toggleAttribute('data-active', this.#session.selected !== null);
+    const tooltip = this.#el('.tooltip');
+    if (this.#ui.tooltip === false) {
+      hideInspection(tooltip);
+      if (keyboard) this.#el('.live').textContent = inspectionText(value);
+      return;
+    }
+    const neighbors = (
+      this.#session.pinned || this.#session.tooltipLocked
+        ? this.#selectedNeighbors
+        : this.#readingNeighbors
+    ).flatMap((key) => {
+      const target = this.#plot?.model?.interactionByKey.get(key);
+      return target ? [target] : [];
+    });
+    dockInspection(tooltip, this.#session.pinned && neighbors.length > 1);
+    renderInspection(
+      tooltip,
+      value,
+      this.#session.pinned,
+      () => {
+        this.#clearInspection();
+        inspectionFocus(this.#root).focus();
+      },
+      {
+        series: this.#session.series,
+        locked: this.#session.tooltipLocked,
+        onLock: () => {
+          this.tooltipLocked = !this.tooltipLocked;
+        },
+        neighbors,
+        onChoose: (key) => this.#chooseObservation(key, neighbors)
+      }
+    );
+    if (place || keyboard) this.#placeTooltip(position);
+    if (keyboard) this.#el('.live').textContent = inspectionText(value);
+  }
+  #chooseObservation(key: string, neighbors: readonly ChartInteraction[]) {
+    if (key === this.#session.selected?.key) return;
+    const target = this.#plot?.model?.interactionByKey.get(key);
+    if (!target) return;
+    this.#inspect(target, null, true, false, null, neighbors);
+    [...this.#el('.tooltip').querySelectorAll<HTMLButtonElement>('.tooltip-observation')]
+      .find((button) => button.dataset.key === key)
+      ?.focus({ preventScroll: true });
+  }
+  #placeTooltip(position: Position | null = null) {
+    if (!this.#session.active || this.#el('.tooltip').hidden) return;
+    const tooltip = this.#el('.tooltip');
+    if (tooltip.classList.contains('docked')) return;
+    const anchor = position ?? this.#plot?.anchor(this.#session.active!) ?? { x: 0, y: 0 };
+    const canvas = this.#el('.canvas').getBoundingClientRect();
+    const rect = this.#plot?.model?.rect;
+    positionInspection(
+      tooltip,
+      { x: canvas.left + anchor.x, y: canvas.top + anchor.y },
+      rect && (this.#session.pinned || this.#session.tooltipLocked)
+        ? {
+            x: canvas.left + rect.x,
+            y: canvas.top + rect.y,
+            width: rect.width,
+            height: rect.height
+          }
+        : undefined
+    );
+  }
+  #step(key: string) {
+    const direction =
+      key === 'Home' || key === 'End'
+        ? key
+        : key === 'ArrowRight' || key === 'ArrowDown'
+          ? 'next'
+          : 'previous';
+    const value = this.#session.next(direction);
+    if (value) this.#inspect(value, null, false, true);
+  }
+  #keyboard(event: KeyboardEvent) {
+    if (event.metaKey || event.ctrlKey || event.altKey || this.#plot?.model?.interactive === false)
+      return;
+    if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
+      event.preventDefault();
+      this.#step(event.key);
+    } else if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      if (this.#session.active) this.#inspect(this.#session.active, null, true, true);
+      else this.#step('Home');
+    }
+  }
+  #table() {
+    const raw = this.#el('.raw'),
+      data = this.#compiled?.document.data;
+    if (this.#ui.dataTable === false) {
+      raw.hidden = true;
+      this.#el('.data').setAttribute('aria-expanded', 'false');
+      this.#el('.data').textContent = 'View data';
+    }
+    this.#el('.pagination').hidden = raw.hidden || !data || data.rows.length <= 50;
+    raw.replaceChildren();
+    if (raw.hidden || !data) return;
+    const table = node('table'),
+      head = node('thead'),
+      tr = node('tr');
+    const pages = Math.max(1, Math.ceil(data.rows.length / 50));
+    this.#page = Math.min(Math.max(this.#page, 0), pages - 1);
+    table.append(
+      node(
+        'caption',
+        '',
+        `${data.rows.length} ${this.#compiled?.document.semantics?.provenance?.kind === 'bins' ? 'derived bins' : 'returned rows'}. Raw values; NULL is shown explicitly.`
+      )
+    );
+    data.fields.forEach((field) => {
+      const th = node('th', '', field.name);
+      th.scope = 'col';
+      tr.append(th);
+    });
+    head.append(tr);
+    table.append(head);
+    const body = node('tbody');
+    for (const values of data.rows.slice(this.#page * 50, (this.#page + 1) * 50)) {
+      const row = node('tr');
+      for (const value of values) {
+        const cell = node('td', '', value ?? 'NULL');
+        if (value === null) cell.setAttribute('aria-label', 'SQL NULL');
+        else if (value === '') cell.setAttribute('aria-label', 'Empty string');
+        row.append(cell);
+      }
+      body.append(row);
+    }
+    table.append(body);
+    raw.append(table);
+    this.#el('.pagination span').textContent = `Page ${this.#page + 1} of ${pages}`;
+    this.#el<HTMLButtonElement>('.previous').disabled = this.#page === 0;
+    this.#el<HTMLButtonElement>('.next').disabled = this.#page >= pages - 1;
+  }
+}
+
+export function defineScopeChart() {
+  if (!customElements.get('scope-chart')) customElements.define('scope-chart', ScopeChartElement);
+}
+declare global {
+  interface HTMLElementTagNameMap {
+    'scope-chart': ScopeChartElement;
+  }
+}

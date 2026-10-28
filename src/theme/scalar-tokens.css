@@ -1,0 +1,11 @@
+/* Generated from design-tokens.json by pnpm tokens:generate. */
+:host {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --color-text-primary: light-dark(rgb(0, 0, 0), #eef1f6);
+  --color-text-secondary: light-dark(rgba(0, 0, 0, 0.6), #b6c0ce);
+  --color-surface: light-dark(#ffffff, #1a2029);
+  --scope-chart-space-section: 16px;
+  --scope-chart-font-size-caption: calc(11px * var(--scope-chart-font-scale));
+  --scope-chart-font-size-metric: calc(28px * var(--scope-chart-font-scale));
+  --scope-chart-font-scale: 1;
+}
