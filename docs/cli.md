@@ -25,26 +25,28 @@ bunx scopeview --help
 
 :::
 
-To run a pinned version without adding a project dependency:
+To run without adding a project dependency:
 
 ::: code-group
 
 ```sh [npm]
-npx --yes --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
-npx --yes --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
+npx --yes @scopedb/scopeview example bar > chart.json
+npx --yes @scopedb/scopeview render chart.json --output chart.html
 ```
 
 ```sh [pnpm]
-pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview example bar > chart.json
-pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview render chart.json --output chart.html
+pnpm dlx @scopedb/scopeview example bar > chart.json
+pnpm dlx @scopedb/scopeview render chart.json --output chart.html
 ```
 
 ```sh [Bun]
-bunx --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
-bunx --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
+bunx @scopedb/scopeview example bar > chart.json
+bunx @scopedb/scopeview render chart.json --output chart.html
 ```
 
 :::
+
+To select a specific release, append its version to the package name, for example `bunx @scopedb/scopeview@0.1.0 --help`.
 
 All three commands run the same CLI with Node.js; `bunx` respects its Node.js shebang. The package contains the library and CLI resources and needs no install script or separate binary download.
 
