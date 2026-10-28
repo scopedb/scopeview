@@ -372,6 +372,105 @@ for (const kind of ['metric', 'trace', 'profile'] as const) {
   });
 }
 
+test('metric notifications survive loading across preserved, removed and reset selections', async ({
+  page
+}) => {
+  const result = await page.evaluate(async () => {
+    const entry = '/src/register.ts';
+    await import(entry);
+    const chart = document.createElement('scope-chart');
+    chart.style.cssText = 'width:600px;--scope-chart-height:200px';
+    document.body.append(chart);
+    const documentFor = (id: string, value: string) => ({
+      version: 1,
+      data: {
+        fields: [
+          { name: 'category', data_type: 'string' },
+          { name: 'value', data_type: 'number' }
+        ],
+        rows: [[id, value]]
+      },
+      spec: { visualization: 'bar', encoding: { x: 'category', y: ['value'] } }
+    });
+    const ready = new Promise((resolve) =>
+      chart.addEventListener('scope-ready', resolve, { once: true })
+    );
+    chart.document = documentFor('a', '100');
+    await ready;
+    const events: { type: string; context: InspectionContext | null }[] = [];
+    for (const type of ['scope-inspect', 'scope-select'])
+      chart.addEventListener(type, (event) => {
+        const context = (event as CustomEvent<{ context: InspectionContext | null }>).detail
+          .context;
+        events.push({ type, context });
+      });
+    const pin = () => {
+      for (const key of ['Home', 'Enter'])
+        chart
+          .shadowRoot!.querySelector('.viewport')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+    };
+    const settle = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const cycle = async (source?: unknown, preserveViewState = true) => {
+      events.length = 0;
+      chart.loading = true;
+      await settle();
+      const whileLoading = events.splice(0);
+      if (source !== undefined) chart.updateDocument(source, { preserveViewState });
+      chart.loading = false;
+      await settle();
+      return { whileLoading, afterLoading: events.splice(0), pin: chart.viewState.pinnedKey };
+    };
+    pin();
+    const original = events.at(-1)!.context!;
+    const unchanged = await cycle();
+    const preserved = await cycle(documentFor('a', '200'));
+    const removed = await cycle(documentFor('b', '300'));
+    pin();
+    const reset = await cycle(documentFor('b', '400'), false);
+    pin();
+    const empty = documentFor('b', '0');
+    empty.data.rows = [];
+    const emptied = await cycle(empty);
+    chart.document = documentFor('a', '500');
+    await settle();
+    pin();
+    const failed = await cycle({ version: 99 });
+    chart.document = documentFor('a', '600');
+    await settle();
+    pin();
+    const cleared = await cycle(null);
+    return { original, unchanged, preserved, removed, reset, emptied, failed, cleared };
+  });
+  expect(result.unchanged).toEqual({
+    whileLoading: [],
+    afterLoading: [],
+    pin: 'category:a'
+  });
+  expect(result.preserved.whileLoading).toEqual([]);
+  expect(result.preserved.pin).toBe('category:a');
+  for (const type of ['scope-inspect', 'scope-select']) {
+    const events = result.preserved.afterLoading.filter((event) => event.type === type);
+    expect(events).toHaveLength(1);
+    expect(events[0].context).toMatchObject({ kind: 'metric', rows: [['a', '200']] });
+    expect(events[0].context?.snapshotId).not.toBe(result.original.snapshotId);
+    for (const state of [
+      result.removed,
+      result.reset,
+      result.emptied,
+      result.failed,
+      result.cleared
+    ]) {
+      expect(state.whileLoading).toEqual([]);
+      expect(state.pin).toBeNull();
+      expect(state.afterLoading.filter((event) => event.type === type)).toEqual([
+        { type, context: null }
+      ]);
+    }
+  }
+});
+
 test('headless callbacks defer deep source copies and retain their original snapshot', async ({
   page
 }) => {

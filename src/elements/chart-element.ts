@@ -105,6 +105,8 @@ export class ScopeChartElement extends HTMLElement {
   #page = 0;
   #propertySet = false;
   #pendingPin: string | null | undefined;
+  // Loading may clear the session without clearing the host's last reading.
+  #reportedInspection = { active: false, selected: false };
   #pendingInspection: { active: boolean; selected: boolean } | null = null;
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
   #lastState = '';
@@ -159,8 +161,8 @@ export class ScopeChartElement extends HTMLElement {
       boolean(options.preserveViewState, 'options.preserveViewState');
     const previous = options.preserveViewState ? this.viewState : null;
     this.#pendingInspection = {
-      active: !!this.#session.active || !!this.#pendingInspection?.active,
-      selected: !!this.#session.selected || !!this.#pendingInspection?.selected
+      active: this.#reportedInspection.active || !!this.#pendingInspection?.active,
+      selected: this.#reportedInspection.selected || !!this.#pendingInspection?.selected
     };
     this.#stateTransaction = true;
     this.#propertySet = true;
@@ -440,6 +442,10 @@ export class ScopeChartElement extends HTMLElement {
     this.#propertySet = false;
   }
   #emit<K extends keyof ScopeChartEventDetails>(name: K, detail: ScopeChartEventDetails[K]) {
+    if (name === 'scope-inspect' && 'key' in detail)
+      this.#reportedInspection.active = detail.key !== null;
+    if (name === 'scope-select' && 'pinned' in detail)
+      this.#reportedInspection.selected = detail.pinned;
     this.#notifyControls();
     this.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
   }
