@@ -11,6 +11,11 @@ import { legendReadings } from '../families/metrics/readings.js';
 import type { ChartRenderer } from './plot-contract.js';
 import type { ChartInteraction, Inspect, Position } from '../core/scene.js';
 import { ChartSession } from '../core/session.js';
+import {
+  InspectionNotifications,
+  type InspectionReading
+} from '../core/inspection-notifications.js';
+import type { ResultRow } from '../data/result.js';
 import { metricInspectionContext } from '../families/metrics/inspection-context.js';
 import { withInspectionContext, type MetricInspectionContext } from '../core/inspection-context.js';
 import { inspectionText } from '../core/labels.js';
@@ -85,6 +90,7 @@ export type ScopeChartEventMap = ScopeEventMap<ScopeChartEventDetails>;
 export class ScopeChartElement extends HTMLElement {
   static observedAttributes = ['loading', 'error', 'theme', 'style', 'class'];
   #compiled: CompiledChart | null = null;
+  #renderedCompiled: CompiledChart | null = null;
   #ui: MetricComponentOptions = {};
   get #options() {
     return {
@@ -105,9 +111,15 @@ export class ScopeChartElement extends HTMLElement {
   #page = 0;
   #propertySet = false;
   #pendingPin: string | null | undefined;
-  // Keep delivered state across loading; fresh records identify superseded notifications.
-  #reportedInspection = { active: { present: false }, selected: { present: false } };
-  #pendingInspection: { active: boolean; selected: boolean } | null = null;
+  #notifications = new InspectionNotifications<ResultRow, CompiledChart>(() => ({
+    snapshot: this.#renderedCompiled,
+    inspect: {
+      target: this.#session.active,
+      series: this.#session.series,
+      pinned: this.#session.pinned
+    },
+    select: { target: this.#session.selected, series: this.#session.selectedSeries }
+  }));
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
   #lastState = '';
   #linkedHighlight: LinkedHighlight | null = null;
@@ -160,10 +172,6 @@ export class ScopeChartElement extends HTMLElement {
     if (options.preserveViewState !== undefined)
       boolean(options.preserveViewState, 'options.preserveViewState');
     const previous = options.preserveViewState ? this.viewState : null;
-    this.#pendingInspection = {
-      active: this.#reportedInspection.active.present || !!this.#pendingInspection?.active,
-      selected: this.#reportedInspection.selected.present || !!this.#pendingInspection?.selected
-    };
     this.#stateTransaction = true;
     this.#propertySet = true;
     this.#clearInspection();
@@ -199,6 +207,7 @@ export class ScopeChartElement extends HTMLElement {
   set viewState(value: MetricViewState) {
     const state = parseViewState(value);
     if (state.kind !== 'metric') throw new TypeError('A metric chart needs metric view state.');
+    this.#notifications.invalidate();
     this.#applyState(state);
     this.#stateReason = 'restore';
     this.#legendState();
@@ -441,41 +450,25 @@ export class ScopeChartElement extends HTMLElement {
     }
     this.#propertySet = false;
   }
-  #emit<K extends keyof ScopeChartEventDetails>(
-    name: K,
-    detail: ScopeChartEventDetails[K],
-    current?: () => boolean
-  ) {
+  #emit<K extends keyof ScopeChartEventDetails>(name: K, detail: ScopeChartEventDetails[K]) {
     this.#notifyControls();
-    if (current && !current()) return;
-    if (name === 'scope-inspect' && 'key' in detail)
-      this.#reportedInspection.active = { present: detail.key !== null };
-    if (name === 'scope-select' && 'pinned' in detail)
-      this.#reportedInspection.selected = { present: detail.pinned };
+    this.#dispatch(name, detail);
+  }
+  #dispatch<K extends keyof ScopeChartEventDetails>(name: K, detail: ScopeChartEventDetails[K]) {
     this.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
   }
-  /** Host and control callbacks can supersede either reading independently. */
-  #inspectionEmitter() {
-    const compiled = this.#compiled,
-      active = this.#session.active,
-      selected = this.#session.selected,
-      series = this.#session.series,
-      selectedSeries = this.#session.selectedSeries,
-      reportedActive = this.#reportedInspection.active,
-      reportedSelected = this.#reportedInspection.selected;
-    return (name: 'scope-inspect' | 'scope-select', detail: ScopeInspectionDetail) =>
-      this.#emit(
-        name,
-        detail,
-        () =>
-          compiled === this.#compiled &&
-          (name === 'scope-inspect'
-            ? active === this.#session.active &&
-              series === this.#session.series &&
-              reportedActive === this.#reportedInspection.active
-            : selected === this.#session.selected &&
-              selectedSeries === this.#session.selectedSeries &&
-              reportedSelected === this.#reportedInspection.selected)
+  #reportInspection(
+    batch: ReturnType<InspectionNotifications<ResultRow, CompiledChart>['capture']>,
+    force = false
+  ) {
+    if (this.#stateTransaction) return;
+    const cursorTimeMs = this.#cursorTimeMs;
+    for (const channel of ['inspect', 'select'] as const)
+      batch.emit(
+        channel,
+        (value, snapshot) =>
+          this.#dispatch(`scope-${channel}`, this.#inspectionDetail(value, snapshot, cursorTimeMs)),
+        { force: channel === 'inspect' && force, before: () => this.#notifyControls() }
       );
   }
   #status(state: string, message: string | null) {
@@ -491,6 +484,7 @@ export class ScopeChartElement extends HTMLElement {
   #dispose() {
     this.#plot?.dispose();
     this.#plot = null;
+    this.#renderedCompiled = null;
     this.#session.setModel(null);
   }
   /** Load the browser renderer only when a plotted chart is needed. */
@@ -548,11 +542,7 @@ export class ScopeChartElement extends HTMLElement {
     try {
       if (compiled.config.mapping.kind === 'aggregate') {
         this.#el<HTMLButtonElement>('.inspect').disabled = true;
-        this.#clearInspection(
-          this.#session.active !== null,
-          this.#session.selected !== null,
-          this.#stateReason
-        );
+        this.#clearInspection(this.#stateReason);
         this.#dispose();
         const metrics = this.#el('.metrics');
         metrics.replaceChildren();
@@ -587,20 +577,15 @@ export class ScopeChartElement extends HTMLElement {
           );
         }
         this.#plot.update(compiled, this.#session.hidden, this.#ui.axes ?? 'full');
+        this.#renderedCompiled = compiled;
         this.#plot.linkedHighlight = this.#linkedHighlight;
         this.#plot.rangeSelection = this.#rangeSelection;
-        const previous = this.#session.active,
-          pinned = this.#session.selected !== null;
         this.#session.setModel(this.#plot.model);
         if (this.#pendingPin !== undefined) {
           this.#session.restorePin(interactive ? this.#pendingPin : null);
           this.#pendingPin = undefined;
         }
-        if (pinned && !this.#session.selected && this.#session.active && !this.#stateTransaction)
-          this.#inspectionEmitter()('scope-select', this.#inspectionDetail(null, false));
-        if (previous && !this.#session.active)
-          this.#clearInspection(true, pinned, this.#stateReason);
-        else if (this.#session.active) {
+        if (this.#session.active) {
           this.#showInspection(null);
         } else {
           this.#plot.focus(null);
@@ -614,8 +599,10 @@ export class ScopeChartElement extends HTMLElement {
         this.#el<HTMLButtonElement>('.inspect').disabled =
           !interactive || !this.#plot.model?.interactions.length;
       }
-      this.#reportDocumentInspection();
+      const batch = this.#notifications.capture();
       this.#status('ready', null);
+      this.#reportInspection(batch);
+      if (compiled !== this.#compiled || !this.isConnected) return;
       this.#stateChanged(this.#stateReason);
       this.#stateReason = 'reconcile';
       this.#emit('scope-ready', {
@@ -708,12 +695,12 @@ export class ScopeChartElement extends HTMLElement {
     this.#notifyControls();
   }
   #inspectionDetail(
-    value = this.#session.active,
-    pinned = this.#session.pinned,
-    series = this.#session.series
+    reading: InspectionReading<ResultRow>,
+    compiled: CompiledChart | null,
+    cursorTimeMs: number | null
   ): ScopeInspectionDetail {
-    const sources = value?.sources ?? [],
-      compiled = this.#compiled;
+    const { target: value, series = null, pinned = false } = reading;
+    const sources = value?.sources ?? [];
     const time = value ? this.#plot?.model?.interactionByKey.get(value.key)?.time : undefined;
     return withInspectionContext(
       {
@@ -721,10 +708,10 @@ export class ScopeChartElement extends HTMLElement {
         key: value?.key ?? null,
         pinned,
         series: value ? series : null,
-        cursorTimeMs: this.#cursorTimeMs,
+        cursorTimeMs,
         ...(time ? { time: { ...time } } : {}),
         rows: sources.map((row) => [...row]),
-        rowIndices: sources.map((row) => compiled!.document.data.rows.indexOf(row)),
+        rowIndices: sources.map((row) => compiled?.document.data.rows.indexOf(row) ?? -1),
         ...(compiled?.document.semantics?.provenance
           ? { provenance: structuredClone(compiled.document.semantics.provenance) }
           : {})
@@ -732,48 +719,20 @@ export class ScopeChartElement extends HTMLElement {
       () => (compiled ? metricInspectionContext(compiled, value, series) : null)
     );
   }
-  #clearInspection(
-    had = this.#session.active !== null,
-    pinned = this.#session.selected !== null,
-    reason: ViewStateChangeDetail['reason'] = 'interaction'
-  ) {
-    const report = !this.#stateTransaction,
-      pending = report ? this.#pendingInspection : null,
-      inspected = had || pending?.active || this.#reportedInspection.active.present,
-      selected = pinned || pending?.selected || this.#reportedInspection.selected.present;
-    if (report) this.#pendingInspection = null;
+  #clearInspection(reason: ViewStateChangeDetail['reason'] = 'interaction') {
+    this.#notifications.invalidate();
     this.#pendingPin = undefined;
     this.#cursorTimeMs = null;
     this.#readingNeighbors = [];
     this.#selectedNeighbors = [];
     this.#session.clearInspection();
-    const emit = this.#inspectionEmitter();
+    const batch = this.#notifications.capture();
     this.#plot?.focus(null);
     this.#el('.inspect').removeAttribute('data-active');
     hideInspection(this.#el('.tooltip'));
     this.#el('.live').textContent = '';
-    if (report) {
-      if (inspected) emit('scope-inspect', this.#inspectionDetail(null, false));
-      if (selected) emit('scope-select', this.#inspectionDetail(null, false));
-    }
+    this.#reportInspection(batch);
     this.#stateChanged(reason);
-  }
-  #reportDocumentInspection() {
-    const pending = this.#pendingInspection;
-    if (!pending) return;
-    this.#pendingInspection = null;
-    const emit = this.#inspectionEmitter();
-    const inspected = pending.active || this.#session.active ? this.#inspectionDetail() : null;
-    const selected =
-      pending.selected || this.#session.selected
-        ? this.#inspectionDetail(
-            this.#session.selected,
-            this.#session.selected !== null,
-            this.#session.selectedSeries
-          )
-        : null;
-    if (inspected) emit('scope-inspect', inspected);
-    if (selected) emit('scope-select', selected);
   }
   #inspect(
     value: ChartInteraction | null,
@@ -783,9 +742,7 @@ export class ScopeChartElement extends HTMLElement {
     series: string | null = null,
     neighbors?: readonly ChartInteraction[]
   ) {
-    const had = this.#session.active !== null,
-      previousKey = this.#session.active?.key,
-      selected = this.#session.selected?.key ?? null;
+    const previousKey = this.#session.active?.key;
     if (!this.#session.inspect(value?.key ?? null, pin, keyboard, series)) return;
     this.#readingNeighbors = keyboard ? [] : (neighbors?.map((target) => target.key) ?? []);
     if (pin || keyboard)
@@ -793,29 +750,20 @@ export class ScopeChartElement extends HTMLElement {
     this.#cursorTimeMs = value
       ? (this.#plot?.model?.interactionByKey.get(value.key)?.time?.start ?? null)
       : null;
-    const changed = selected !== (this.#session.selected?.key ?? null);
     if (!value) position = null;
     value = this.#session.active;
     if (!value) {
-      this.#clearInspection(had, selected !== null);
+      this.#clearInspection();
       return;
     }
-    const emit = this.#inspectionEmitter(),
-      inspected = this.#inspectionDetail(),
-      selection = changed
-        ? this.#inspectionDetail(
-            this.#session.selected,
-            this.#session.selected !== null,
-            this.#session.selectedSeries
-          )
-        : null;
+    const batch = this.#notifications.capture();
     if (pin)
       inspectionFocus(this.#root).focus({
         preventScroll: true
       });
-    this.#showInspection(position, keyboard, position !== null || previousKey !== value.key);
-    emit('scope-inspect', inspected);
-    if (selection) emit('scope-select', selection);
+    if (batch.current('inspect'))
+      this.#showInspection(position, keyboard, position !== null || previousKey !== value.key);
+    this.#reportInspection(batch, true);
     this.#stateChanged();
   }
   #showInspection(position: Position | null, keyboard = false, place = true) {

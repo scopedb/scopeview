@@ -101,6 +101,8 @@ chart.addEventListener('scope-error', (event) => {
 
 Event context captures the displayed snapshot. Its source fields are copied together on the first data-field read, then reused within that event. Retained events still describe their original snapshot after data is replaced; unread contexts do not copy ancestor chains. A document replacement reports the final reading and selection: preserved pins receive updated context after the replacement paints, and cleared or removed sources receive `null`. This also applies to replacements made during loading. Outside dismissal, errors and disconnection clear the reported context even while loading. Synchronous host callbacks can dismiss or replace a reading; remaining notifications for superseded selections are discarded. Ordinary repainting does not report selection changes. Track these inspection events rather than treating `scope-ready`, which also fires after repainting, as a selection invalidation signal.
 
+For every family, `scope-select` describes the persistent selection. Its `key` and `context` are `null` and `pinned` is `false` when keyboard navigation clears selection, even if `scope-inspect` still describes a transient reading. Clearing an already-null reported state does not emit another selection event. Host control callbacks follow the same reentrancy rules as inspection listeners; dismissing from either callback keeps the reading hidden.
+
 | Event                           | Detail                                                             |
 | ------------------------------- | ------------------------------------------------------------------ |
 | `scope-ready`                   | Rendered visualization and row/node counts; may fire after repaint |

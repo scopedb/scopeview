@@ -13,7 +13,7 @@ import { interactionHosts } from './interactions.js';
 /** Shared trace/profile viewport; controls and selected-source details are host-owned. */
 export function createHierarchy<
   Source extends Entity,
-  Compiled,
+  Compiled extends object,
   Context extends HierarchyInspectionContext
 >(
   host: HTMLElement,
@@ -47,7 +47,10 @@ export function createHierarchy<
         !view.viewport
       );
     },
-    (target) => context(rendered, target),
+    {
+      snapshot: () => rendered,
+      contextFor: (target) => context(rendered, target)
+    },
     {
       inputConsumed: () => view.viewport?.consumed ?? false,
       onNavigate(target) {
@@ -88,7 +91,7 @@ export function createHierarchy<
     compiled = next;
     model = nextView;
     view.status(model.items.length ? null : 'No data');
-    view.changed();
+    if (!view.disposed) view.changed();
   };
   view.status(model.items.length ? null : 'No data');
   view.changed();

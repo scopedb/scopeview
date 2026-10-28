@@ -20,6 +20,7 @@ export function createMetric(
   options = parseViewOptions(options);
   let inner: ChartView;
   let disposed = false;
+  let revision = 0;
   let theme = options.theme ?? 'light';
   let rendered = compiled;
   const scalarValues = (value: CompiledChart): ScalarValue[] => {
@@ -45,7 +46,10 @@ export function createMetric(
         rendered = compiled;
         return layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal');
       },
-      (target, series) => metricInspectionContext(rendered, target, series)
+      {
+        snapshot: () => rendered,
+        contextFor: (target, series) => metricInspectionContext(rendered, target, series)
+      }
     );
     view.status(compiled.document.data.rows.length ? null : 'No data');
     view.changed();
@@ -68,6 +72,7 @@ export function createMetric(
     refresh: () => inner.refresh(),
     dispose() {
       disposed = true;
+      revision++;
       inner.dispose();
       interactionHosts.delete(handle);
     }
@@ -79,11 +84,12 @@ export function createMetric(
   }
   function replace(next: CompiledChart, nextLayout: MetricLayout = layout) {
     if (disposed) throw new Error('This chart has been disposed.');
+    const current = ++revision;
     layout = nextLayout;
     const aggregate = next.config.mapping.kind === 'aggregate';
     if (aggregate !== (compiled.config.mapping.kind === 'aggregate')) {
-      if (inner instanceof View && inner.runtime.session.selected) options.onSelect?.(null, null);
-      if (inner instanceof View) inner.hideReading();
+      if (inner instanceof View) inner.clearInspection();
+      if (disposed || current !== revision) return;
       inner.dispose();
       compiled = next;
       inner = mount();
@@ -91,8 +97,10 @@ export function createMetric(
     } else {
       compiled = next;
       if (inner instanceof View) {
-        inner.status(compiled.document.data.rows.length ? null : 'No data');
-        inner.changed();
+        const view = inner;
+        view.status(compiled.document.data.rows.length ? null : 'No data');
+        if (disposed || current !== revision) return;
+        view.changed();
       } else inner.update(scalarValues(compiled));
     }
   }
