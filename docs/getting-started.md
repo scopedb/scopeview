@@ -107,7 +107,7 @@ Disposal removes the view's DOM and listeners. See [frameworks](frameworks.md) f
 
 Use a modern browser with Canvas 2D, ES modules and native CSS `light-dark()`. The tooltip uses the Popover API when available; its fixed-position fallback can be clipped by a transformed or overflow-clipped ancestor. Test those embedding surfaces in your application.
 
-The browser suite runs on Playwright Chromium in CI and releases. Node.js is needed for building and HTML export, not for rendering in the browser.
+Node.js is needed for building and HTML export, not for rendering in the browser.
 
 ## Next steps
 

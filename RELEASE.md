@@ -19,7 +19,7 @@ For version `0.1.0`, npm receives `@scopedb/scopeview@0.1.0` with public access 
 
 Every platform archive consumes the same tested npm tarball. Native jobs use only Node built-ins and do not install the project's development dependencies. They check the actual launcher on its target OS/architecture. Fonts and third-party runtime licenses are included. Extract and retain the complete directory; the launcher is not a single-file executable.
 
-The documentation site is built for validation but is not deployed by the release workflow. Public GitHub downloads require a publicly readable repository or separate public hosting. Publishing npm does not make a private GitHub repository public.
+The documentation site is built for validation in CI and deployed separately from the release workflow.
 
 ## npm trusted publisher setup
 

@@ -114,7 +114,7 @@ Abort a pending mount if its host is removed. The signal prevents mounting after
 
 Metric updates validate before loading. During a download, the previous figure stays available. The latest valid update wins; an older successful update resolves without applying. Invalid input or failed loading rejects without replacing the current figure. Disposing during an update prevents mounting and rejects it with `AbortError`. Handle rejections in the application, including an intentionally aborted mount.
 
-The loader and downloaded layouts share ESM chunks. A loader's byte size is not the cost of a rendered chart; use `pnpm test:bundle` after building to check complete consumers.
+The loader and downloaded layouts share ESM chunks, so only the requested family and metric layout are loaded on demand.
 
 ## Enable selection and navigation
 
