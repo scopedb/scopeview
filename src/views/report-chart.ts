@@ -2,6 +2,7 @@ import { compileChart, type CompiledChart } from '../families/metrics/document.j
 import { metricLayoutKind } from '../families/metrics/layout-kind.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
 import type { ResultRow } from '../data/result.js';
+import type { MetricInspectionContext } from '../core/inspection-context.js';
 import { createMetric } from './metric.js';
 import type { ViewOptions } from './view.js';
 import type { ReportView } from './host.js';
@@ -26,7 +27,7 @@ async function loadLayout(compiled: CompiledChart): Promise<MetricLayout> {
 export async function createReportChart(
   host: HTMLElement,
   document: unknown,
-  options: ViewOptions<ResultRow> = {},
+  options: ViewOptions<ResultRow, MetricInspectionContext> = {},
   signal?: AbortSignal
 ): Promise<ReportView> {
   const compiled = compileChart(document);

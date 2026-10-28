@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import type { InspectionContext, ChartScene } from '../../src/index.js';
+import type { InspectionContext, ProfileInspectionContext, ChartScene } from '../../src/index.js';
 import type { ChartView } from '../../src/headless.js';
 import type { ScopeChartElement, ScopeTraceElement, ScopeFlameElement } from '../../src/element.js';
 import type { HierarchyInspectionDetail } from '../../src/elements/hierarchy-element.js';
@@ -245,6 +245,225 @@ test('component events expose the same context contract and clear it on dismissa
     expect(await page.evaluate((id) => window.inspectionFixture.inspected[id], id)).toBeNull();
     expect(await page.evaluate((id) => window.inspectionFixture.selected[id], id)).toBeNull();
   }
+});
+
+for (const kind of ['metric', 'trace', 'profile'] as const) {
+  test(`${kind} reports replacement selections and clears stale context without repaint notifications`, async ({
+    page
+  }) => {
+    const result = await page.evaluate(async (kind) => {
+      const entry = '/src/register.ts';
+      await import(entry);
+      const chart = document.createElement(
+        kind === 'metric' ? 'scope-chart' : kind === 'trace' ? 'scope-trace' : 'scope-flame'
+      );
+      chart.style.cssText = 'width:600px;--scope-chart-height:200px';
+      document.body.append(chart);
+      const documentFor = (value: string, id = 'a') =>
+        kind === 'metric'
+          ? {
+              version: 1,
+              data: {
+                fields: [
+                  { name: 'category', data_type: 'string' },
+                  { name: 'value', data_type: 'number' }
+                ],
+                rows: [[id, value]]
+              },
+              spec: { visualization: 'bar', encoding: { x: 'category', y: ['value'] } }
+            }
+          : kind === 'trace'
+            ? {
+                version: 1,
+                kind,
+                spans: [{ id, name: id, startTimeNs: '0', endTimeNs: value }]
+              }
+            : {
+                version: 1,
+                kind,
+                unit: 'samples',
+                frames: [{ id, name: id, selfWeight: value }]
+              };
+      const ready = new Promise((resolve) =>
+        chart.addEventListener('scope-ready', resolve, { once: true })
+      );
+      chart.document = documentFor('100');
+      await ready;
+      type Reading = { type: string; context: InspectionContext | null };
+      const events: Reading[] = [];
+      for (const type of ['scope-inspect', 'scope-select'])
+        chart.addEventListener(type, (event) => {
+          const context = (event as CustomEvent<{ context: InspectionContext | null }>).detail
+            .context;
+          events.push({ type, context });
+        });
+      const input = chart.shadowRoot!.querySelector(kind === 'metric' ? '.viewport' : '.canvas')!;
+      const pin = () => {
+        for (const key of ['Home', 'Enter'])
+          input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      };
+      const settle = () =>
+        new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      pin();
+      const previous = events.findLast((event) => event.type === 'scope-select')!.context!;
+      events.length = 0;
+      chart.updateDocument(documentFor('200'), { preserveViewState: true });
+      await settle();
+      const replacement = events.splice(0);
+      chart.refresh();
+      chart.theme = 'dark';
+      await settle();
+      const repaint = events.splice(0);
+      chart.updateDocument(documentFor('300', 'different'), { preserveViewState: true });
+      await settle();
+      const removed = events.splice(0);
+      pin();
+      events.length = 0;
+      chart.document = documentFor('400');
+      await settle();
+      const reset = events.splice(0);
+      pin();
+      events.length = 0;
+      // Two replacements in one frame must still clear the last delivered selection.
+      chart.document = documentFor('500');
+      chart.document = documentFor('600');
+      await settle();
+      const coalesced = events.splice(0);
+      pin();
+      events.length = 0;
+      const empty = documentFor('0');
+      if ('data' in empty) empty.data!.rows = [];
+      else if ('spans' in empty) empty.spans = [];
+      else empty.frames = [];
+      chart.document = empty;
+      await settle();
+      const emptied = events.splice(0);
+      chart.document = documentFor('700');
+      await settle();
+      pin();
+      events.length = 0;
+      chart.document = { version: 99 };
+      await settle();
+      const failed = events.splice(0);
+      return { previous, replacement, repaint, removed, reset, coalesced, emptied, failed };
+    }, kind);
+    expect(result.repaint).toEqual([]);
+    for (const type of ['scope-inspect', 'scope-select']) {
+      const replacements = result.replacement.filter((event) => event.type === type);
+      expect(replacements).toHaveLength(1);
+      const context = replacements[0].context!;
+      expect(context.snapshotId).not.toBe(result.previous.snapshotId);
+      expect(context).toMatchObject(
+        kind === 'metric'
+          ? { rows: [['a', '200']] }
+          : kind === 'trace'
+            ? { span: { endTimeNs: '200' }, durationNs: '200' }
+            : { frame: { selfWeight: '200' }, totalWeight: '200' }
+      );
+      for (const events of [
+        result.removed,
+        result.reset,
+        result.coalesced,
+        result.emptied,
+        result.failed
+      ])
+        expect(events.filter((event) => event.type === type)).toEqual([{ type, context: null }]);
+    }
+  });
+}
+
+test('headless callbacks defer deep source copies and retain their original snapshot', async ({
+  page
+}) => {
+  const result = await page.evaluate(async () => {
+    const entry = '/src/flame.ts',
+      interactions = '/src/interactions.ts';
+    const { createFlame } = await import(entry);
+    const { enableInteractions } = await import(interactions);
+    const host = document.createElement('div');
+    host.style.cssText = 'width:600px;--scope-chart-height:200px';
+    document.body.append(host);
+    const count = 10_000;
+    const retained: ProfileInspectionContext[] = [];
+    const view = createFlame(
+      host,
+      {
+        version: 1,
+        kind: 'profile',
+        unit: 'samples',
+        frames: Array.from({ length: count }, (_, index) => ({
+          id: `f${index}`,
+          name: `Frame ${index}`,
+          selfWeight: '1',
+          ...(index ? { parentId: `f${index - 1}` } : {})
+        }))
+      },
+      {
+        tooltip: false,
+        onInspect: (_target: unknown, context: ProfileInspectionContext | null) => {
+          if (context) retained.push(context);
+        },
+        onSelect: (_target: unknown, context: ProfileInspectionContext | null) => {
+          if (context) retained.push(context);
+        }
+      }
+    );
+    enableInteractions(view);
+    const settle = () =>
+      new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    await settle();
+    const clone = window.structuredClone;
+    let copies = 0;
+    window.structuredClone = (value, options) => {
+      const candidate = value as { kind?: string } | null;
+      if (candidate?.kind === 'profile' && Object.hasOwn(candidate, 'ancestors')) copies++;
+      return clone(value, options);
+    };
+    try {
+      const input = host.querySelector('.scopeview-view')!.shadowRoot!.querySelector('.canvas')!;
+      for (const key of ['End', 'Enter', 'ArrowLeft', 'End'])
+        input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      const unusedCopies = copies;
+      const context = retained[0];
+      const snapshotId = context.snapshotId;
+      view.update({
+        version: 1,
+        kind: 'profile',
+        unit: 'bytes',
+        frames: [{ id: 'replacement', name: 'Replacement', selfWeight: '2' }]
+      });
+      await settle();
+      Object.freeze(context);
+      const ancestors = context.ancestors;
+      const serialized = structuredClone(context);
+      return {
+        callbacks: retained.length,
+        unusedCopies,
+        copies,
+        key: context.key,
+        snapshotId: serialized.snapshotId === snapshotId,
+        unit: serialized.unit,
+        ancestors: ancestors.length,
+        memoized: ancestors === context.ancestors,
+        serializedAncestors: serialized.ancestors.length
+      };
+    } finally {
+      window.structuredClone = clone;
+      view.dispose();
+    }
+  });
+  expect(result.callbacks).toBeGreaterThanOrEqual(4);
+  expect(result).toMatchObject({
+    unusedCopies: 0,
+    // One source copy, plus the consumer's explicit structuredClone(context).
+    copies: 2,
+    key: 'profile:f9999',
+    snapshotId: true,
+    unit: 'samples',
+    ancestors: 9999,
+    memoized: true,
+    serializedAncestors: 9999
+  });
 });
 
 for (const kind of ['trace', 'profile'] as const) {

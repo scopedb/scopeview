@@ -49,7 +49,7 @@ export interface ProfileInspectionContext extends InspectionContextBase {
 export type HierarchyInspectionContext = TraceInspectionContext | ProfileInspectionContext;
 export type InspectionContext = MetricInspectionContext | HierarchyInspectionContext;
 
-/** Event context is copied once on first read, then releases its captured source snapshot. */
+/** Create an event's context once on first read, retaining its captured snapshot. */
 export function withInspectionContext<Detail extends object, Context extends InspectionContext>(
   detail: Detail,
   create: (() => Context | null) | null
@@ -74,7 +74,7 @@ export function withInspectionContext<Detail extends object, Context extends Ins
 
 const snapshots = new WeakMap<object, string>();
 
-/** Copy family data and common snapshot metadata at the public inspection boundary. */
+/** Capture snapshot metadata now; copy family data together on its first read. */
 export function copyInspectionContext<Detail extends { kind: InspectionContext['kind'] }>(
   document: EntityDocument,
   key: string,
@@ -87,12 +87,33 @@ export function copyInspectionContext<Detail extends { kind: InspectionContext['
     ).join('');
     snapshots.set(document, snapshotId);
   }
-  return structuredClone({
+  const context = {
     version: 1 as const,
     snapshotId,
     key,
+    kind: detail.kind,
     ...(document.title !== undefined ? { title: document.title } : {}),
-    ...(document.description !== undefined ? { description: document.description } : {}),
-    ...detail
-  });
+    ...(document.description !== undefined ? { description: document.description } : {})
+  };
+  let value = detail;
+  let pending = true;
+  const read = () => {
+    if (pending) {
+      value = structuredClone(value);
+      pending = false;
+    }
+    return value;
+  };
+  for (const name of Object.keys(detail) as (keyof Detail)[]) {
+    if (name === 'kind') continue;
+    Object.defineProperty(context, name, {
+      configurable: true,
+      enumerable: true,
+      get: () => read()[name],
+      set: (next) => {
+        read()[name] = next;
+      }
+    });
+  }
+  return context as Detail & InspectionContextBase;
 }

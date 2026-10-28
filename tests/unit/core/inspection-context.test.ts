@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   compileChart,
   layoutChart,
@@ -200,5 +200,44 @@ describe('inspection context', () => {
     expect(profileInspectionContext(compiled, targets.get('profile:zero')!)!.totalWeight).toBe('0');
     expect(profileInspectionContext(compiled, null)).toBeNull();
     expect(JSON.parse(JSON.stringify(context))).toEqual(context);
+  });
+
+  it('reads metadata without traversing ancestors and copies source fields once on demand', () => {
+    const count = 1000;
+    const compiled = compileProfile({
+      version: 1,
+      kind: 'profile',
+      unit: 'samples',
+      frames: Array.from({ length: count }, (_, index) => ({
+        id: String(index),
+        name: 'Frame',
+        selfWeight: '1',
+        ...(index ? { parentId: String(index - 1) } : {})
+      }))
+    });
+    const source = compiled.document.frames.at(-1)!;
+    const lookup = vi.spyOn(compiled.hierarchy.byId, 'get');
+    const clone = globalThis.structuredClone;
+    const copies = vi.spyOn(globalThis, 'structuredClone');
+    try {
+      const context = profileInspectionContext(compiled, {
+        key: `profile:${source.id}`,
+        sources: [source],
+        tooltip: { rows: [] }
+      })!;
+      expect(context.kind).toBe('profile');
+      expect(context.snapshotId).toBeTruthy();
+      expect(lookup).toHaveBeenCalledTimes(1);
+      expect(copies).not.toHaveBeenCalled();
+      Object.freeze(context);
+      const ancestors = context.ancestors;
+      expect(ancestors).toHaveLength(count - 1);
+      expect(context.ancestors).toBe(ancestors);
+      expect(clone(context)).toEqual(JSON.parse(JSON.stringify(context)));
+      expect(copies).toHaveBeenCalledTimes(1);
+    } finally {
+      lookup.mockRestore();
+      copies.mockRestore();
+    }
   });
 });

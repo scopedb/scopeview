@@ -27,7 +27,9 @@ export function traceInspectionContext(
   return copyInspectionContext(compiled.document, target.key, {
     kind: 'trace',
     span,
-    ancestors: ancestors(span, compiled.hierarchy),
+    get ancestors() {
+      return ancestors(span, compiled.hierarchy);
+    },
     durationNs: compiled.timings.get(span.id)!.duration.toString(),
     coverage: compiled.document.coverage ?? 'unknown'
   });
@@ -42,7 +44,9 @@ export function profileInspectionContext(
   return copyInspectionContext(compiled.document, target.key, {
     kind: 'profile',
     frame,
-    ancestors: ancestors(frame, compiled.hierarchy),
+    get ancestors() {
+      return ancestors(frame, compiled.hierarchy);
+    },
     unit: compiled.document.unit,
     totalWeight: compiled.weights.get(frame.id)!.total.toString(),
     profileTotalWeight: compiled.totalWeight.toString()

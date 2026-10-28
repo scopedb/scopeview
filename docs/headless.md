@@ -59,16 +59,16 @@ Hover, click and keyboard arrows inspect. Home/End jump to boundary targets; Esc
 
 ## Inspect source context
 
-Both callbacks receive a second argument, `InspectionContext | null`. Existing one-argument callbacks continue to work. The context is a detached, JSON-serializable snapshot of the exact inspected source, with `version: 1`, `kind`, `key`, an opaque `snapshotId`, and the document's optional title and description. Import its types from `@scopedb/scopeview`.
+Both callbacks receive a second argument with exact source context, or `null`. Metric factories infer `MetricInspectionContext`, `createTrace` infers `TraceInspectionContext`, and `createFlame` infers `ProfileInspectionContext`; mixed-family factories use the `InspectionContext` union. `ViewOptions<Source, Context>` also accepts an explicit context type. Existing one-argument callbacks continue to work. Import context types from `@scopedb/scopeview`.
+
+The context is JSON-serializable and identifies the captured document with `version: 1`, `kind`, `key`, an opaque `snapshotId`, and its optional title and description. Reading these metadata fields does not copy source data. The first data-field read copies the source fields together, and later reads reuse that detached copy. Ignoring context avoids copying rows and ancestor chains. JSON serialization and `structuredClone(context)` read its data fields; retaining a context across updates still reads its original snapshot.
 
 ```ts
 const chart = createChart(host, requests, {
   onInspect(target, context) {
     if (!target || !context) return;
-    if (context.kind === 'metric') {
-      console.log(context.snapshotId, context.rowIndices, context.rows);
-      console.log(context.fields, context.spec, context.series);
-    }
+    console.log(context.snapshotId, context.rowIndices, context.rows);
+    console.log(context.fields, context.spec, context.series);
   },
   onSelect(_target, context) {
     console.log('Selected source:', context);

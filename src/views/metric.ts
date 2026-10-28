@@ -2,6 +2,7 @@ import { parseViewOptions } from './options.js';
 import type { CompiledChart } from '../families/metrics/document.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
 import type { ResultRow } from '../data/result.js';
+import type { MetricInspectionContext } from '../core/inspection-context.js';
 import { scalarView, type ScalarValue } from './scalar.js';
 import { View, type ViewOptions, type ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
@@ -14,7 +15,7 @@ export function createMetric(
   compiled: CompiledChart,
   layout: MetricLayout,
   compile: (document: unknown) => CompiledChart,
-  options: ViewOptions<ResultRow> = {}
+  options: ViewOptions<ResultRow, MetricInspectionContext> = {}
 ) {
   options = parseViewOptions(options);
   let inner: ChartView;

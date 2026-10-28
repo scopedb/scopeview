@@ -50,12 +50,15 @@ import {
 } from './controls.js';
 import type { ScopeCommonEventDetails, ScopeEventListener, ScopeEventMap } from './events.js';
 
-export interface HierarchyInspectionDetail<Source extends Entity = Entity> {
-  kind: 'trace' | 'profile';
+export interface HierarchyInspectionDetail<
+  Source extends Entity = Entity,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
+> {
+  kind: Context['kind'];
   key: string | null;
   pinned: boolean;
   sources: Source[];
-  context: HierarchyInspectionContext | null;
+  context: Context | null;
 }
 export interface HierarchyReadyDetail {
   visualization: 'trace' | 'profile';
@@ -64,17 +67,20 @@ export interface HierarchyReadyDetail {
 export interface HierarchyCollapseChangeDetail {
   collapsed: string[];
 }
-export interface HierarchyEventDetails<Source extends Entity = Entity>
-  extends ScopeCommonEventDetails {
+export interface HierarchyEventDetails<
+  Source extends Entity = Entity,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
+> extends ScopeCommonEventDetails {
   'scope-ready': HierarchyReadyDetail;
-  'scope-inspect': HierarchyInspectionDetail<Source>;
-  'scope-select': HierarchyInspectionDetail<Source>;
+  'scope-inspect': HierarchyInspectionDetail<Source, Context>;
+  'scope-select': HierarchyInspectionDetail<Source, Context>;
   'scope-viewport-change': ViewportState;
   'scope-collapse-change': HierarchyCollapseChangeDetail;
 }
-export type HierarchyEventMap<Source extends Entity = Entity> = ScopeEventMap<
-  HierarchyEventDetails<Source>
->;
+export type HierarchyEventMap<
+  Source extends Entity = Entity,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
+> = ScopeEventMap<HierarchyEventDetails<Source, Context>>;
 interface CompiledEntity<Source extends Entity, Doc extends EntityDocument> {
   document: Doc;
   hierarchy: Hierarchy<Source>;
@@ -84,7 +90,8 @@ interface CompiledEntity<Source extends Entity, Doc extends EntityDocument> {
 export class HierarchyElement<
   Source extends Entity,
   Doc extends EntityDocument,
-  Compiled extends CompiledEntity<Source, Doc>
+  Compiled extends CompiledEntity<Source, Doc>,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
 > extends HTMLElement {
   static observedAttributes = ['loading', 'error', 'theme', 'style', 'class'];
   #compiled: Compiled | null = null;
@@ -117,7 +124,7 @@ export class HierarchyElement<
   #linkedHighlight: LinkedHighlight | null = null;
   #controlEvents = new ControlEvents();
   constructor(
-    readonly kind: 'trace' | 'profile',
+    readonly kind: Context['kind'],
     private compile: (input: unknown) => Compiled,
     private createView: (
       compiled: Compiled,
@@ -126,7 +133,7 @@ export class HierarchyElement<
     private inspectionContext: (
       compiled: Compiled,
       target: ChartInteraction<Source> | null
-    ) => HierarchyInspectionContext | null
+    ) => Context | null
   ) {
     super();
     this.#root = this.attachShadow({ mode: 'open' });
@@ -265,9 +272,9 @@ export class HierarchyElement<
   set theme(value: ScopeTheme) {
     this.#appearance.value = value;
   }
-  addEventListener<K extends keyof HierarchyEventMap<Source>>(
+  addEventListener<K extends keyof HierarchyEventMap<Source, Context>>(
     type: K,
-    listener: ScopeEventListener<this, HierarchyEventMap<Source>[K]>,
+    listener: ScopeEventListener<this, HierarchyEventMap<Source, Context>[K]>,
     options?: boolean | AddEventListenerOptions
   ): void;
   addEventListener(
@@ -282,9 +289,9 @@ export class HierarchyElement<
   ) {
     super.addEventListener(type, listener, options);
   }
-  removeEventListener<K extends keyof HierarchyEventMap<Source>>(
+  removeEventListener<K extends keyof HierarchyEventMap<Source, Context>>(
     type: K,
-    listener: ScopeEventListener<this, HierarchyEventMap<Source>[K]>,
+    listener: ScopeEventListener<this, HierarchyEventMap<Source, Context>[K]>,
     options?: boolean | EventListenerOptions
   ): void;
   removeEventListener(
@@ -406,9 +413,9 @@ export class HierarchyElement<
   #rebuild() {
     this.#view = this.#compiled ? this.createView(this.#compiled, this.#collapsed) : null;
   }
-  #emit<K extends keyof HierarchyEventDetails<Source>>(
+  #emit<K extends keyof HierarchyEventDetails<Source, Context>>(
     type: K,
-    detail: HierarchyEventDetails<Source>[K]
+    detail: HierarchyEventDetails<Source, Context>[K]
   ) {
     this.#notifyControls();
     this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
@@ -692,7 +699,7 @@ export class HierarchyElement<
       this.#stateChanged();
     }
   }
-  #detail(): HierarchyInspectionDetail<Source> {
+  #detail(): HierarchyInspectionDetail<Source, Context> {
     const active = this.#runtime?.session.active ?? null,
       compiled = this.#renderedCompiled,
       project = this.inspectionContext;
@@ -749,10 +756,10 @@ export class HierarchyElement<
       const reading = inspectionText(active);
       if (this.#el('.live').textContent !== reading) this.#el('.live').textContent = reading;
     }
-    this.#lastKey = active?.key ?? null;
-    this.#lastPinned = pinned;
-    this.#lastCompiled = active ? this.#renderedCompiled : null;
     if (!this.#stateTransaction) {
+      this.#lastKey = active?.key ?? null;
+      this.#lastPinned = pinned;
+      this.#lastCompiled = active ? this.#renderedCompiled : null;
       if (emit || changed || unpinned || snapshotChanged)
         this.#emit('scope-inspect', this.#detail());
       if (unpinned || ((emit || snapshotChanged) && pinned))

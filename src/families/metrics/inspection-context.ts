@@ -27,7 +27,9 @@ export function metricInspectionContext(
     fields: document.data.fields,
     spec: document.spec,
     rowIndices,
-    rows: [...target.sources],
+    get rows() {
+      return [...target.sources];
+    },
     series,
     ...(document.semantics ? { semantics: document.semantics } : {}),
     ...(document.options?.values ? { values: document.options.values } : {})

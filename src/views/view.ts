@@ -13,7 +13,7 @@ export type { ChartTheme, ChartView, ThemeConfig, ThemeMode } from './host.js';
 import type { ViewOptions } from './options.js';
 export type { ViewOptions } from './options.js';
 /** A canvas and transient reading. Application UI stays outside this owned child. */
-export class View<Source> extends ViewHost implements ChartView {
+export class View<Source, Context extends InspectionContext> extends ViewHost implements ChartView {
   readonly canvas = node('div', 'canvas');
   readonly runtime: ReadingRuntime<Source>;
   readonly signal: AbortSignal;
@@ -30,13 +30,13 @@ export class View<Source> extends ViewHost implements ChartView {
 
   constructor(
     host: HTMLElement,
-    readonly options: ViewOptions<Source>,
+    readonly options: ViewOptions<Source, Context>,
     tokens: string,
     layout: SceneLayout<Source>,
     private readonly contextFor: (
       target: ChartInteraction<Source> | null,
       series: string | null
-    ) => InspectionContext | null,
+    ) => Context | null,
     input: {
       onNavigate?(target: ChartInteraction<Source>): void;
       inputConsumed?(): boolean;

@@ -11,22 +11,23 @@ import { View, type ViewOptions, type ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
 
 /** Shared trace/profile viewport; controls and selected-source details are host-owned. */
-export function createHierarchy<Source extends Entity, Compiled>(
+export function createHierarchy<
+  Source extends Entity,
+  Compiled,
+  Context extends HierarchyInspectionContext
+>(
   host: HTMLElement,
   document: unknown,
   compile: (document: unknown) => Compiled,
   createView: (compiled: Compiled) => HierarchyView<Source>,
-  context: (
-    compiled: Compiled,
-    target: ChartInteraction<Source> | null
-  ) => HierarchyInspectionContext | null,
-  options: ViewOptions<Source>
+  context: (compiled: Compiled, target: ChartInteraction<Source> | null) => Context | null,
+  options: ViewOptions<Source, Context>
 ): ChartView {
   options = parseViewOptions(options);
   let compiled = compile(document);
   let rendered = compiled;
   let model = createView(compiled);
-  const view: View<Source> = new View(
+  const view: View<Source, Context> = new View(
     host,
     options,
     '',

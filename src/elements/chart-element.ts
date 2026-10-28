@@ -105,6 +105,7 @@ export class ScopeChartElement extends HTMLElement {
   #page = 0;
   #propertySet = false;
   #pendingPin: string | null | undefined;
+  #pendingInspection: { active: boolean; selected: boolean } | null = null;
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
   #lastState = '';
   #linkedHighlight: LinkedHighlight | null = null;
@@ -157,6 +158,10 @@ export class ScopeChartElement extends HTMLElement {
     if (options.preserveViewState !== undefined)
       boolean(options.preserveViewState, 'options.preserveViewState');
     const previous = options.preserveViewState ? this.viewState : null;
+    this.#pendingInspection = {
+      active: !!this.#session.active || !!this.#pendingInspection?.active,
+      selected: !!this.#session.selected || !!this.#pendingInspection?.selected
+    };
     this.#stateTransaction = true;
     this.#propertySet = true;
     this.#clearInspection();
@@ -574,6 +579,7 @@ export class ScopeChartElement extends HTMLElement {
         this.#el<HTMLButtonElement>('.inspect').disabled =
           !interactive || !this.#plot.model?.interactions.length;
       }
+      this.#reportDocumentInspection();
       this.#status('ready', null);
       this.#stateChanged(this.#stateReason);
       this.#stateReason = 'reconcile';
@@ -705,9 +711,29 @@ export class ScopeChartElement extends HTMLElement {
     this.#el('.inspect').removeAttribute('data-active');
     hideInspection(this.#el('.tooltip'));
     this.#el('.live').textContent = '';
-    if (had && !this.#stateTransaction) this.#emit('scope-inspect', this.#inspectionDetail());
-    if (pinned && !this.#stateTransaction) this.#emit('scope-select', this.#inspectionDetail());
+    if (!this.#stateTransaction) {
+      const pending = this.#pendingInspection;
+      this.#pendingInspection = null;
+      if (had || pending?.active) this.#emit('scope-inspect', this.#inspectionDetail());
+      if (pinned || pending?.selected) this.#emit('scope-select', this.#inspectionDetail());
+    }
     this.#stateChanged(reason);
+  }
+  #reportDocumentInspection() {
+    const pending = this.#pendingInspection;
+    if (!pending) return;
+    this.#pendingInspection = null;
+    const inspected = pending.active || this.#session.active ? this.#inspectionDetail() : null;
+    const selected =
+      pending.selected || this.#session.selected
+        ? this.#inspectionDetail(
+            this.#session.selected,
+            this.#session.selected !== null,
+            this.#session.selectedSeries
+          )
+        : null;
+    if (inspected) this.#emit('scope-inspect', inspected);
+    if (selected) this.#emit('scope-select', selected);
   }
   #inspect(
     value: ChartInteraction | null,
