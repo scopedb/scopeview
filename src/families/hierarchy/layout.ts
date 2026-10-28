@@ -217,7 +217,10 @@ export function layoutHierarchy<Source extends Entity>(
         );
         // A centered overflow cue distinguishes a narrow named span from an empty
         // block. Do not invent abbreviations or change the duration/weight geometry.
-        const overflow = !label && right - left >= measureLabel('…') + tokenEntityOverflowInset * 2;
+        const overflow =
+          !label &&
+          right - left >= tokenEntityOverflowInset * 2 &&
+          right - left >= measureLabel('…') + tokenEntityOverflowInset * 2;
         if (label || overflow)
           scene.marks.push({
             kind: 'text',

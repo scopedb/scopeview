@@ -1,5 +1,6 @@
 import { fail, object, text, TEXT_LIMIT } from '../../data/validation.js';
 export { fail, object, text } from '../../data/validation.js';
+export { formatInteger } from '../../data/integer-format.js';
 import { boolean } from '../../data/validation.js';
 
 export const ENTITY_LIMITS = Object.freeze({
@@ -173,9 +174,6 @@ export function visibleSources<Source extends Entity>(
 export function ratio(value: bigint, total: bigint): number {
   if (!total) return 0;
   return Number(value) / Number(total);
-}
-export function formatInteger(value: bigint): string {
-  return value.toLocaleString('en-US');
 }
 export function formatNanoseconds(value: bigint, resolution?: bigint): string {
   const magnitude = value < 0n ? -value : value;

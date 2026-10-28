@@ -1,5 +1,6 @@
 import type { ChartFieldRef } from './result.js';
 import type { TimeWindow } from './time.js';
+import { formatInteger } from './integer-format.js';
 
 export type ChartPresentation = 'full' | 'sparkline';
 /** Execution facts travel with a result, independently of a saved chart spec. */
@@ -52,7 +53,7 @@ function exactDecimal(raw: string): string {
   const fraction = (
     point <= 0 ? '0'.repeat(-point) + digits : point >= digits.length ? '' : digits.slice(point)
   ).replace(/0+$/, '');
-  return `${match[1] === '-' ? '-' : ''}${BigInt(whole).toLocaleString('en-US')}${fraction ? `.${fraction}` : ''}`;
+  return `${match[1] === '-' ? '-' : ''}${formatInteger(BigInt(whole))}${fraction ? `.${fraction}` : ''}`;
 }
 
 /** Exact source readings; declared display conversion is separate from floating geometry. */
@@ -62,11 +63,10 @@ export function formatQuantity(
 ): string {
   if (raw === null) return 'NULL';
   if (!display) {
-    if (/^[+-]?\d+$/.test(raw)) return BigInt(raw).toLocaleString('en-US');
+    if (/^[+-]?\d+$/.test(raw)) return formatInteger(BigInt(raw));
     const value = raw.trim();
     if (!value) return '0';
-    if (/^0(?:x[\da-f]+|o[0-7]+|b[01]+)$/i.test(value))
-      return BigInt(value).toLocaleString('en-US');
+    if (/^0(?:x[\da-f]+|o[0-7]+|b[01]+)$/i.test(value)) return formatInteger(BigInt(value));
     return exactDecimal(value);
   }
   if (!/^[1-9]\d*$/.test(display.divisor))
@@ -86,7 +86,7 @@ export function formatQuantity(
     return `${n < 0n ? '−' : ''}<${limit}${suffix}`;
   }
   const rounded = (absolute * scale * 2n + divisor) / (2n * divisor);
-  const whole = (rounded / scale).toLocaleString('en-US');
+  const whole = formatInteger(rounded / scale);
   const fraction = decimals ? `.${String(rounded % scale).padStart(decimals, '0')}` : '';
   return `${n < 0n ? '−' : ''}${whole}${fraction}${suffix}`;
 }
