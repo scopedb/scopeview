@@ -63,7 +63,7 @@ describe('native chart layout contracts', () => {
     'bar',
     'line',
     'area'
-  ] as const)('uses Console semantic category paints on native %s marks and inspection swatches', (type) => {
+  ] as const)('uses semantic category paints on native %s marks and inspection swatches', (type) => {
     const doc = axis([
       ['200', 'unused', '3'],
       ['404', 'unused', '2'],

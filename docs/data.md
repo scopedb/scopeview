@@ -41,9 +41,9 @@ bunx scopeview validate chart.json --json
 
 :::
 
-The schema is also exported as `@scopedb/scopeview/schema/v1.json`, with ID `urn:scopedb:scopeview:document:1`. One schema covers all three families through local `$defs`; no hosted resolver is needed. It describes structural requirements and rejects unknown properties in configuration records. `compileVisualization` remains authoritative for references, row widths, eligibility, cycles, intervals and other semantic constraints. Runtime validation does not depend on a schema engine. Package, document and CLI protocol versions are independent; the document format remains version 1 and omitted kind means metric.
+The schema is also exported as `@scopedb/scopeview/schema/v1.json`, with ID `urn:scopedb:scopeview:document:1`. One schema covers all three families through local `$defs`; no hosted resolver is needed. It describes structural requirements and rejects unknown properties in configuration records. `compileVisualization` checks references, row widths, eligibility, cycles, intervals and other semantic constraints without depending on a schema engine at runtime. Package, document and CLI protocol versions are independent; the document format uses `version: 1` and an omitted `kind` defaults to metric.
 
-Compiler limits remain 10,000 metric rows, 64 columns, 100,000 cells, 100,000 hierarchy nodes, 64 attributes per node, 40-digit hierarchy integers and 4,096 UTF-16 code units per text value. JSON Schema counts Unicode code points for `maxLength`; astral-character boundaries can therefore pass schema and fail the compiler. Trace timestamps/profile weights and metric numeric cells remain strings, never rounded numeric JSON. NULLs, zero, source order and explicit gaps survive validation/export unchanged. The CLI separately limits input bytes; see [CLI input limits](cli.md#input-and-file-protection).
+Compiler limits are 10,000 metric rows, 64 columns, 100,000 cells, 100,000 hierarchy nodes, 64 attributes per node, 40-digit hierarchy integers and 4,096 UTF-16 code units per text value. JSON Schema counts Unicode code points for `maxLength`; astral-character boundaries can therefore pass schema and fail the compiler. Trace timestamps, profile weights and metric numeric cells are strings rather than numeric JSON. NULLs, zero, source order and explicit gaps survive validation and export unchanged. The CLI separately limits input bytes; see [CLI input limits](cli.md#input-and-file-protection).
 
 ## Metric documents
 
@@ -89,7 +89,7 @@ The middle sample is an explicit gap. Line and area charts connect supplied samp
 
 `ChartDocumentInput` and `ChartSpecInput` accept field names. The parser returns an owned `ChartDocument` with full field references, which can be passed back to the parser. Row count is always `rows.length`. Only the document has a `version`; `spec.visualization` selects the encoding roles. The TypeScript types and JSON Schema enforce those associations.
 
-Unknown properties are errors at every document level, including data, field definitions, nested options, field references and semantics. `data` contains only `fields` and `rows`; the old `data.metadata` wrapper is rejected, including when flat fields are also present. Removed fields (`num_rows`, `spec.version`, encoding/ref `kind`, `renderer` and document UI switches) are also errors. A typo such as `options.toolip` throws `ChartValidationError` with path `options.toolip`. Arbitrary names are allowed only in the `colors` and entity `attributes` maps.
+Unknown properties are errors at every document level, including `data`, field definitions, nested options, field references and semantics. `data` contains only `fields` and `rows`. A typo such as `options.toolip` throws `ChartValidationError` with path `options.toolip`. Arbitrary names are allowed only in the `colors` and entity `attributes` maps.
 
 ### Fields and encodings
 

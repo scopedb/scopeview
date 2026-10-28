@@ -38,7 +38,7 @@ Package acceptance installs the tarball into a temporary consumer with an isolat
 
 Native archive acceptance checks the launcher and bundled runtime on the target operating system, including relocation into a directory with spaces and failure when the bundled runtime is missing. Browser behavior belongs to the package/browser suites; platform packaging does not need another independent renderer test suite.
 
-Keep tests for observable failure modes. Avoid repeating fixtures merely to exercise another command alias or testing a removed development tool's policy. See [bundle checks](development/bundle-size.md) for the small set of retained consumer size limits.
+Keep tests for observable failure modes. Avoid repeating fixtures merely to exercise another command alias. See [bundle checks](development/bundle-size.md) for the consumer size limits.
 
 ## Build and distribution scripts
 
@@ -50,7 +50,7 @@ Keep tests for observable failure modes. Avoid repeating fixtures merely to exer
 | `tests/package/run.mjs`    | Runs installed-package acceptance and optionally retains the accepted tarball/checksum                                 |
 | `tests/distribution.mjs`   | Exercises the actual platform archive and its launcher                                                                 |
 
-No build or test requires earlier Git commits. Benchmarks, historical bundle comparisons and source-file ownership scanners are not part of the release toolchain. The browser library keeps the same public APIs and rendering behavior.
+Builds and tests run from the current checkout without requiring earlier Git history.
 
 ## Local artifacts
 

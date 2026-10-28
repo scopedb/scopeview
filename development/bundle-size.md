@@ -17,4 +17,4 @@ The tests verify that the root API runs without browser globals, unused imports 
 
 These limits exclude caller data and optional fonts. Font retention is checked separately. Platform archives also include a Node executable, so browser budgets do not describe their download sizes.
 
-No Git reference, historical exception, comparison checkout, or stored report is needed. The same checks work in a shallow clone or a source archive. Change a limit only when the added capability justifies the download cost.
+The checks work in a shallow clone or a source archive without requiring Git history. Change a limit only when the added capability justifies the download cost.
