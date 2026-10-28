@@ -21,10 +21,29 @@ The source tabs use npm package imports and JSON modules. Use a build tool that 
 ```sh
 mkdir scopeview-example
 cd scopeview-example
+```
+
+::: code-group
+
+```sh [npm]
 npm init -y
 npm install @scopedb/scopeview
 npm install --save-dev vite
 ```
+
+```sh [pnpm]
+pnpm init
+pnpm add @scopedb/scopeview
+pnpm add --save-dev vite
+```
+
+```sh [Bun]
+bun init -y
+bun add @scopedb/scopeview
+bun add --dev vite
+```
+
+:::
 
 ### Save the source files
 
@@ -44,18 +63,44 @@ Keep the module script and styles from **index.html**. **chart.js** imports **da
 
 From the project directory, start the development server:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx vite --host 127.0.0.1
 ```
+
+```sh [pnpm]
+pnpm exec vite --host 127.0.0.1
+```
+
+```sh [Bun]
+bunx vite --host 127.0.0.1
+```
+
+:::
 
 Open the local HTTP URL printed by Vite. Opening **index.html** directly or serving these source files with a plain static server does not resolve the package and JSON imports.
 
 To build the application and preview the resulting **dist/** directory:
 
-```sh
+::: code-group
+
+```sh [npm]
 npx vite build
 npx vite preview --host 127.0.0.1
 ```
+
+```sh [pnpm]
+pnpm exec vite build
+pnpm exec vite preview --host 127.0.0.1
+```
+
+```sh [Bun]
+bunx vite build
+bunx vite preview --host 127.0.0.1
+```
+
+:::
 
 For an HTML file that includes its data and renderer and opens offline, use [HTML export](embedding.md).
 

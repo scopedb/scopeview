@@ -22,10 +22,24 @@ If you are choosing how to visualize a table, use the [chart family guide](chart
 
 `scopeview example <name>` prints a complete synthetic document; the package includes `line`, `area`, `bar`, `horizontal-bar`, `scatter`, `pie`, `top-list`, `treemap`, `big-number`, `trace` and `profile` under `examples/documents/`. The `pie` example renders a donut.
 
-```sh
+::: code-group
+
+```sh [npm]
+npx scopeview schema > document.schema.json
+npx scopeview validate chart.json --json
+```
+
+```sh [pnpm]
 pnpm exec scopeview schema > document.schema.json
 pnpm exec scopeview validate chart.json --json
 ```
+
+```sh [Bun]
+bunx scopeview schema > document.schema.json
+bunx scopeview validate chart.json --json
+```
+
+:::
 
 The schema is also exported as `@scopedb/scopeview/schema/v1.json`, with ID `urn:scopedb:scopeview:document:1`. One schema covers all three families through local `$defs`; no hosted resolver is needed. It describes structural requirements and rejects unknown properties in configuration records. `compileVisualization` remains authoritative for references, row widths, eligibility, cycles, intervals and other semantic constraints. Runtime validation does not depend on a schema engine. Package, document and CLI protocol versions are independent; the document format remains version 1 and omitted kind means metric.
 
