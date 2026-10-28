@@ -105,8 +105,8 @@ export class ScopeChartElement extends HTMLElement {
   #page = 0;
   #propertySet = false;
   #pendingPin: string | null | undefined;
-  // Loading may clear the session without clearing the host's last reading.
-  #reportedInspection = { active: false, selected: false };
+  // Keep delivered state across loading; fresh records identify superseded notifications.
+  #reportedInspection = { active: { present: false }, selected: { present: false } };
   #pendingInspection: { active: boolean; selected: boolean } | null = null;
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
   #lastState = '';
@@ -161,8 +161,8 @@ export class ScopeChartElement extends HTMLElement {
       boolean(options.preserveViewState, 'options.preserveViewState');
     const previous = options.preserveViewState ? this.viewState : null;
     this.#pendingInspection = {
-      active: this.#reportedInspection.active || !!this.#pendingInspection?.active,
-      selected: this.#reportedInspection.selected || !!this.#pendingInspection?.selected
+      active: this.#reportedInspection.active.present || !!this.#pendingInspection?.active,
+      selected: this.#reportedInspection.selected.present || !!this.#pendingInspection?.selected
     };
     this.#stateTransaction = true;
     this.#propertySet = true;
@@ -441,13 +441,42 @@ export class ScopeChartElement extends HTMLElement {
     }
     this.#propertySet = false;
   }
-  #emit<K extends keyof ScopeChartEventDetails>(name: K, detail: ScopeChartEventDetails[K]) {
-    if (name === 'scope-inspect' && 'key' in detail)
-      this.#reportedInspection.active = detail.key !== null;
-    if (name === 'scope-select' && 'pinned' in detail)
-      this.#reportedInspection.selected = detail.pinned;
+  #emit<K extends keyof ScopeChartEventDetails>(
+    name: K,
+    detail: ScopeChartEventDetails[K],
+    current?: () => boolean
+  ) {
     this.#notifyControls();
+    if (current && !current()) return;
+    if (name === 'scope-inspect' && 'key' in detail)
+      this.#reportedInspection.active = { present: detail.key !== null };
+    if (name === 'scope-select' && 'pinned' in detail)
+      this.#reportedInspection.selected = { present: detail.pinned };
     this.dispatchEvent(new CustomEvent(name, { detail, bubbles: true, composed: true }));
+  }
+  /** Host and control callbacks can supersede either reading independently. */
+  #inspectionEmitter() {
+    const compiled = this.#compiled,
+      active = this.#session.active,
+      selected = this.#session.selected,
+      series = this.#session.series,
+      selectedSeries = this.#session.selectedSeries,
+      reportedActive = this.#reportedInspection.active,
+      reportedSelected = this.#reportedInspection.selected;
+    return (name: 'scope-inspect' | 'scope-select', detail: ScopeInspectionDetail) =>
+      this.#emit(
+        name,
+        detail,
+        () =>
+          compiled === this.#compiled &&
+          (name === 'scope-inspect'
+            ? active === this.#session.active &&
+              series === this.#session.series &&
+              reportedActive === this.#reportedInspection.active
+            : selected === this.#session.selected &&
+              selectedSeries === this.#session.selectedSeries &&
+              reportedSelected === this.#reportedInspection.selected)
+      );
   }
   #status(state: string, message: string | null) {
     this.setAttribute('data-state', state);
@@ -568,7 +597,7 @@ export class ScopeChartElement extends HTMLElement {
           this.#pendingPin = undefined;
         }
         if (pinned && !this.#session.selected && this.#session.active && !this.#stateTransaction)
-          this.#emit('scope-select', this.#inspectionDetail(null, false));
+          this.#inspectionEmitter()('scope-select', this.#inspectionDetail(null, false));
         if (previous && !this.#session.active)
           this.#clearInspection(true, pinned, this.#stateReason);
         else if (this.#session.active) {
@@ -708,20 +737,24 @@ export class ScopeChartElement extends HTMLElement {
     pinned = this.#session.selected !== null,
     reason: ViewStateChangeDetail['reason'] = 'interaction'
   ) {
+    const report = !this.#stateTransaction,
+      pending = report ? this.#pendingInspection : null,
+      inspected = had || pending?.active || this.#reportedInspection.active.present,
+      selected = pinned || pending?.selected || this.#reportedInspection.selected.present;
+    if (report) this.#pendingInspection = null;
     this.#pendingPin = undefined;
     this.#cursorTimeMs = null;
     this.#readingNeighbors = [];
     this.#selectedNeighbors = [];
     this.#session.clearInspection();
+    const emit = this.#inspectionEmitter();
     this.#plot?.focus(null);
     this.#el('.inspect').removeAttribute('data-active');
     hideInspection(this.#el('.tooltip'));
     this.#el('.live').textContent = '';
-    if (!this.#stateTransaction) {
-      const pending = this.#pendingInspection;
-      this.#pendingInspection = null;
-      if (had || pending?.active) this.#emit('scope-inspect', this.#inspectionDetail());
-      if (pinned || pending?.selected) this.#emit('scope-select', this.#inspectionDetail());
+    if (report) {
+      if (inspected) emit('scope-inspect', this.#inspectionDetail(null, false));
+      if (selected) emit('scope-select', this.#inspectionDetail(null, false));
     }
     this.#stateChanged(reason);
   }
@@ -729,6 +762,7 @@ export class ScopeChartElement extends HTMLElement {
     const pending = this.#pendingInspection;
     if (!pending) return;
     this.#pendingInspection = null;
+    const emit = this.#inspectionEmitter();
     const inspected = pending.active || this.#session.active ? this.#inspectionDetail() : null;
     const selected =
       pending.selected || this.#session.selected
@@ -738,8 +772,8 @@ export class ScopeChartElement extends HTMLElement {
             this.#session.selectedSeries
           )
         : null;
-    if (inspected) this.#emit('scope-inspect', inspected);
-    if (selected) this.#emit('scope-select', selected);
+    if (inspected) emit('scope-inspect', inspected);
+    if (selected) emit('scope-select', selected);
   }
   #inspect(
     value: ChartInteraction | null,
@@ -766,21 +800,22 @@ export class ScopeChartElement extends HTMLElement {
       this.#clearInspection(had, selected !== null);
       return;
     }
+    const emit = this.#inspectionEmitter(),
+      inspected = this.#inspectionDetail(),
+      selection = changed
+        ? this.#inspectionDetail(
+            this.#session.selected,
+            this.#session.selected !== null,
+            this.#session.selectedSeries
+          )
+        : null;
     if (pin)
       inspectionFocus(this.#root).focus({
         preventScroll: true
       });
     this.#showInspection(position, keyboard, position !== null || previousKey !== value.key);
-    this.#emit('scope-inspect', this.#inspectionDetail());
-    if (changed)
-      this.#emit(
-        'scope-select',
-        this.#inspectionDetail(
-          this.#session.selected,
-          this.#session.selected !== null,
-          this.#session.selectedSeries
-        )
-      );
+    emit('scope-inspect', inspected);
+    if (selection) emit('scope-select', selection);
     this.#stateChanged();
   }
   #showInspection(position: Position | null, keyboard = false, place = true) {

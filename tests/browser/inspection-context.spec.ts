@@ -471,6 +471,124 @@ test('metric notifications survive loading across preserved, removed and reset s
   }
 });
 
+for (const action of ['outside-focus', 'error', 'disconnect'] as const) {
+  test(`loading dismissal via ${action} clears the host's cached context once`, async ({
+    page
+  }) => {
+    const result = await page.evaluate(async (action) => {
+      const entry = '/tests/browser/fixtures/inspection.ts';
+      const { createSelectedMetric }: typeof import('./fixtures/inspection.js') = await import(
+        entry
+      );
+      const fixture = await createSelectedMetric();
+      const { chart, outside, events, settle } = fixture;
+      chart.loading = true;
+      await settle();
+      const loadingEvents = events.splice(0);
+      if (action === 'outside-focus') outside.focus();
+      else if (action === 'error') chart.error = 'Unavailable';
+      else chart.remove();
+      chart.loading = false;
+      await settle();
+      const dismissed = events.splice(0);
+      document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      chart.refresh();
+      await settle();
+      return {
+        loadingEvents,
+        dismissed,
+        repeated: events,
+        pin: chart.viewState.pinnedKey,
+        cached: fixture.selection
+      };
+    }, action);
+    expect(result.loadingEvents).toEqual([]);
+    expect(result.pin).toBeNull();
+    expect(result.cached).toBeNull();
+    expect(result.dismissed).toEqual([
+      { type: 'scope-inspect', context: null },
+      { type: 'scope-select', context: null }
+    ]);
+    expect(result.repeated).toEqual([]);
+  });
+}
+
+for (const action of [
+  'dismiss',
+  'controls-dismiss',
+  'replace',
+  'refresh',
+  'hover',
+  'pin-dismiss'
+] as const) {
+  test(`inspection notifications respect ${action} in a host callback`, async ({ page }) => {
+    const result = await page.evaluate(async (action) => {
+      const entry = '/tests/browser/fixtures/inspection.ts';
+      const { createSelectedMetric, metricDocument }: typeof import('./fixtures/inspection.js') =
+        await import(entry);
+      const fixture = await createSelectedMetric();
+      const { chart, outside, events, settle } = fixture;
+      if (action === 'pin-dismiss') {
+        chart.document = metricDocument('200');
+        await settle();
+        events.length = 0;
+      }
+      let dismissOnControls = false;
+      let controlCallbacks = 0;
+      chart.addEventListener('scope-controls-change', () => {
+        if (dismissOnControls) {
+          controlCallbacks++;
+          outside.focus();
+        }
+      });
+      let handled = false;
+      chart.addEventListener('scope-inspect', (event) => {
+        if (handled || event.detail.context?.rows[0][1] !== '200') return;
+        if (action === 'pin-dismiss' && !event.detail.pinned) return;
+        handled = true;
+        if (action === 'dismiss' || action === 'pin-dismiss') outside.focus();
+        else if (action === 'controls-dismiss') {
+          dismissOnControls = true;
+          chart.configure({ toolbar: { actions: ['inspect'] } });
+        } else if (action === 'replace') chart.document = metricDocument('300', 'b');
+        else if (action === 'hover')
+          chart.shadowRoot!.querySelector('.plot')!.dispatchEvent(new PointerEvent('pointerleave'));
+        else chart.refresh();
+      });
+      if (action === 'pin-dismiss')
+        for (const key of ['Home', 'Enter'])
+          chart
+            .shadowRoot!.querySelector('.viewport')!
+            .dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+      else chart.updateDocument(metricDocument('200'), { preserveViewState: true });
+      await settle();
+      await settle();
+      return {
+        selected: events.filter((event) => event.type === 'scope-select'),
+        readings: events.filter(
+          (event) => event.type === 'scope-inspect' && event.context?.rows[0][1] === '200'
+        ).length,
+        pin: chart.viewState.pinnedKey,
+        cached: fixture.selection,
+        handled,
+        controlCallbacks
+      };
+    }, action);
+    expect(result.handled).toBe(true);
+    expect(result.selected).toHaveLength(1);
+    if (action === 'refresh' || action === 'hover') {
+      expect(result.pin).toBe('category:a');
+      expect(result.cached).toMatchObject({ rows: [['a', '200']] });
+    } else {
+      expect(result.pin).toBeNull();
+      expect(result.cached).toBeNull();
+      expect(result.selected).toEqual([{ type: 'scope-select', context: null }]);
+    }
+    if (action === 'hover') expect(result.readings).toBeGreaterThanOrEqual(2);
+    if (action === 'controls-dismiss') expect(result.controlCallbacks).toBeGreaterThan(0);
+  });
+}
+
 test('headless callbacks defer deep source copies and retain their original snapshot', async ({
   page
 }) => {
