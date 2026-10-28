@@ -14,7 +14,7 @@ npm install @scopedb/scopeview
 
 ## Export HTML with the CLI
 
-Run the CLI without adding a project dependency. Choose your package manager; all three commands require Node.js 24+. For npm, `--yes` keeps installation prompts out of `chart.json`.
+Run the CLI without adding a project dependency. Choose your package manager; all three commands require Node.js 24+.
 
 ```sh
 # npm

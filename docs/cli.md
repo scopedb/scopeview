@@ -25,7 +25,7 @@ bunx scopeview --help
 
 :::
 
-To run without adding a project dependency (`--yes` keeps npm installation prompts out of `chart.json`):
+To run without adding a project dependency:
 
 ::: code-group
 
