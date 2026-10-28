@@ -1,0 +1,17 @@
+enabled: true
+titleOnly: true
+
+types:
+  - feat
+  - fix
+  - docs
+  - style
+  - refactor
+  - perf
+  - test
+  - build
+  - ci
+  - chore
+  - revert
+
+targetUrl: https://github.com/scopedb/scopeview/blob/main/.github/semantic.yml

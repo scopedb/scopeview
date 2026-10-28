@@ -12,6 +12,10 @@ Follow [module ownership](development/architecture.md). Shared DOM and reading p
 - Format Markdown tables with aligned columns and consistent delimiter rows.
 - Preserve meaningful paragraph boundaries, explicit line breaks, nested lists, code blocks, and other syntax that requires newlines. Keep links to files in this repository relative.
 
+## Pull requests
+
+Use `<type>[optional scope]: <description>` for every new or renamed PR title, for example `docs: clarify CLI installation` or `fix(cli): preserve input files`. Allowed types are defined in [.github/semantic.yml](.github/semantic.yml): `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore` and `revert`. Semantic PR checks the title only; valid commit messages do not compensate for an invalid PR title. Use the same convention for commit messages.
+
 ## Build and package boundaries
 
 Keep the root API usable without browser globals, scalar imports free of Canvas, and Web Component registration explicit. `pnpm test:bundle` checks real bundled consumers and fixed gzip limits without depending on Git history. Do not increase a limit simply to make a failure pass; explain the user-facing benefit of added bytes.
