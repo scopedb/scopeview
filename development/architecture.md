@@ -53,7 +53,9 @@ Keep data and compilation independent of browser globals. Views share Canvas and
 
 Reading, persistent selection, keyboard focus, ranges and viewports have distinct owners. Updates reconcile compatible targets; removed sources cannot retain stale selection. Invalid headless updates preserve the previous figure. Asynchronous report updates validate before loading and prevent stale downloads from overwriting newer data.
 
-Runtime objects own observers, listeners and scheduled frames. Views own their child DOM; components release runtime resources on disconnect. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
+The internal `RuntimeLifecycle` base owns Canvas measurement, layout invalidation, frame scheduling, resize/font/DPR listeners, error recovery and resource disposal. `ReadingRuntime` and `ChartRuntime` retain their own sessions, input handling and paint-state projection. The base does not import range, link or viewport controllers, so sharing lifecycle code does not pull optional interaction capabilities into headless views.
+
+Views own their child DOM; components release runtime resources on disconnect. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
 
 See [custom rendering](../docs/canvas-infra.md) for low-level consumers and [development](../CONTRIBUTING.md) for tests, scripts and packaging.
 
