@@ -30,9 +30,21 @@ features:
 
 ## Install
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install @scopedb/scopeview
 ```
+
+```sh [pnpm]
+pnpm add @scopedb/scopeview
+```
+
+```sh [Bun]
+bun add @scopedb/scopeview
+```
+
+:::
 
 ## Live preview
 

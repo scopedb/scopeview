@@ -4,23 +4,51 @@
 
 ## Installation and invocation
 
-The npm package provides one executable:
+The package provides one executable and requires Node.js 24+:
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install @scopedb/scopeview
 npx scopeview --help
 ```
 
-With Bun, install it using `bun add @scopedb/scopeview` and run `bunx scopeview --help`. To run a pinned version without adding a project dependency:
+```sh [pnpm]
+pnpm add @scopedb/scopeview
+pnpm exec scopeview --help
+```
 
-```sh
+```sh [Bun]
+bun add @scopedb/scopeview
+bunx scopeview --help
+```
+
+:::
+
+To run a pinned version without adding a project dependency:
+
+::: code-group
+
+```sh [npm]
+npx --yes --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
+npx --yes --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
+```
+
+```sh [pnpm]
+pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview example bar > chart.json
+pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview render chart.json --output chart.html
+```
+
+```sh [Bun]
 bunx --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
 bunx --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
 ```
 
-`bunx` installs the npm package and respects the CLI's Node.js shebang, so Node.js 24+ must be available. The package contains the library and CLI resources; it needs no install script or separate binary download.
+:::
 
-The npm CLI requires Node.js 24+. A platform archive includes the same accepted npm package and a pinned official Node runtime. Extract the complete archive, then invoke `bin/scopeview` on macOS/Linux or `bin\scopeview.cmd` on Windows. No external Node/npm, browser installation or network connection is required to validate or export after extraction. Opening the resulting HTML requires a browser.
+All three commands run the same CLI with Node.js; `bunx` respects its Node.js shebang. The package contains the library and CLI resources and needs no install script or separate binary download.
+
+A platform archive includes the same accepted npm package and a pinned official Node runtime. Extract the complete archive, then invoke `bin/scopeview` on macOS/Linux or `bin\scopeview.cmd` on Windows. No external Node/npm, browser installation or network connection is required to validate or export after extraction. Opening the resulting HTML requires a browser.
 
 Keep `app/`, `runtime/` and `licenses/` together. The directory can be moved; the Unix launcher also supports a symlink on PATH. Release files include SHA-256 checksums and runtime/package integrity in `manifest.json`, plus the Node, ScopeView and font licenses. The release workflow targets macOS, Linux and Windows on x64/ARM64. Linux uses the official Node glibc runtime; Alpine/musl needs a compatible environment. Platform requirements follow Node 24.
 

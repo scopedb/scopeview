@@ -14,14 +14,23 @@ npm install @scopedb/scopeview
 
 ## Export HTML with the CLI
 
-Use Bun to run the CLI without adding a project dependency. Node.js 24+ must be installed; `bunx` respects the CLI's Node.js shebang.
+Run the CLI without adding a project dependency. Choose your package manager; all three commands require Node.js 24+.
 
 ```sh
+# npm
+npx --yes --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
+npx --yes --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
+
+# pnpm
+pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview example bar > chart.json
+pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview render chart.json --output chart.html
+
+# Bun
 bunx --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
 bunx --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
 ```
 
-Open `chart.html` in a browser. It contains the data and renderer and works offline. If the package is already installed in your project, use `bunx scopeview` or `npx scopeview`. Run `scopeview --help` through either command to list options.
+Open `chart.html` in a browser. It contains the data and renderer and works offline. If the package is already installed in your project, use `npx scopeview`, `pnpm exec scopeview` or `bunx scopeview`. Add `--help` to list commands.
 
 For machines without Node.js or Bun, download a platform archive from [GitHub Releases](https://github.com/scopedb/scopeview/releases). Extract the complete directory and run `bin/scopeview` (`bin\scopeview.cmd` on Windows); the archive includes its own Node runtime.
 
@@ -58,7 +67,7 @@ const chart = createChart(document.querySelector<HTMLElement>('#chart')!, {
 // Call chart.update(document) for new data and chart.dispose() on unmount.
 ```
 
-The same imports work in Bun projects. See [getting started](docs/getting-started.md) for setup and [framework integration](docs/frameworks.md) for mounting and cleanup.
+See [getting started](docs/getting-started.md) for setup and [framework integration](docs/frameworks.md) for mounting and cleanup.
 
 ## Documentation
 

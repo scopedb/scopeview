@@ -12,11 +12,21 @@ For a file-based workflow, follow the [CLI example](cli-example.md) to create JS
 
 In your application:
 
-```sh
+::: code-group
+
+```sh [npm]
 npm install @scopedb/scopeview
 ```
 
-For Bun projects, use `bun add @scopedb/scopeview`. The imports and browser examples below are the same with either package manager.
+```sh [pnpm]
+pnpm add @scopedb/scopeview
+```
+
+```sh [Bun]
+bun add @scopedb/scopeview
+```
+
+:::
 
 ScopeView has no runtime npm dependencies and ships ESM with TypeScript declarations. Keep the complete installed package so its shared ESM chunks remain available. Use Node.js 24+ for the HTML exporter and local development; see the [development guide](../CONTRIBUTING.md) for building and testing a local tarball.
 
