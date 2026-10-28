@@ -14,12 +14,11 @@ npm install @scopedb/scopeview
 
 ## Export HTML with the CLI
 
-Run the CLI without adding a project dependency. Choose your package manager; all three commands require Node.js 24+. Confirm installation if npm prompts.
+Run the CLI without adding a project dependency. Choose your package manager; all three commands require Node.js 24+. For npm, `--yes` keeps installation prompts out of `chart.json`.
 
 ```sh
 # npm
-npx @scopedb/scopeview --help
-npx @scopedb/scopeview example bar > chart.json
+npx --yes @scopedb/scopeview example bar > chart.json
 npx @scopedb/scopeview render chart.json --output chart.html
 
 # pnpm
