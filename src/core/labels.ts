@@ -92,6 +92,7 @@ export function fitLabel(
   measure: MeasureText,
   minimumPrefix = 1
 ): string {
+  if (width < 0) return '';
   if (measure(text) <= width) return text;
   const points = graphemes ? [...graphemes.segment(text)].map((part) => part.segment) : [...text];
   let left = 0,

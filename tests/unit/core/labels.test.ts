@@ -17,6 +17,8 @@ describe('readable Canvas labels', () => {
     expect(fitLabel('Read data', 5, measure)).toBe('Read…');
     expect(fitLabel('中文測試檢索', 5, measure)).toBe('中文測試…');
     expect(fitLabel('Read', 0, measure)).toBe('');
+    expect(fitLabel('Read', -1, measure)).toBe('');
+    expect(fitLabel('\u200b', 0, () => 0)).toBe('\u200b');
   });
   it('omits unreadable fragments while keeping complete short names and grapheme boundaries', () => {
     expect(fitLabel('retry timeout', 4, measure, 4)).toBe('');
