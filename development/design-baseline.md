@@ -2,7 +2,7 @@
 
 **Baseline v1** defines ScopeView's accepted geometry, paint and interaction behavior. This page consolidates the current rules; its revision is independent of package/document versions. Refactoring or documentation work does not change those rules.
 
-The library favors exact readings, stable source colors, quiet structure and compact inspection. Shared defaults come from the [token catalog](../docs/design-tokens.md). Host overrides are explicit and do not redefine the baseline. A host `theme.fontSize` deliberately scales the text hierarchy from the 13px base, including Canvas measurement and label fitting. Default sizes below remain unchanged; source geometry and state paint are preserved. Host categorical palettes do not override semantic status roles or explicit document colors.
+The library favors exact readings, stable source colors, quiet structure and compact inspection. Shared defaults come from the [token catalog](../docs/design-tokens.md). Host overrides are explicit and do not redefine the baseline. A host `theme.fontSize` deliberately scales the text hierarchy from the 13px base, including Canvas measurement and label fitting. Default sizes below apply at the 13px base; source geometry and state paint are preserved. Host categorical palettes do not override semantic status roles or explicit document colors.
 
 ## Geometry and sources
 
@@ -16,14 +16,14 @@ The library favors exact readings, stable source colors, quiet structure and com
 
 The default surface contains marks, sparse rulers, essential labels and transient readings. Titles, toolbars, legends, tables, summaries and fixed details belong to the host. Click reads a value. Persistent selection and hierarchy navigation require `/interactions`.
 
-- Scalars use intrinsic HTML with shared quantity typography and no Canvas runtime. Their surface now follows the host theme, including dark mode, rather than remaining transparent; this intentional change keeps quantities readable on mixed-mode pages.
+- Scalars use intrinsic HTML with shared quantity typography and no Canvas runtime. Their surface follows the host theme, including dark mode, so quantities stay readable on mixed-mode pages.
 - Plots default to 240px. Numeric/time rulers keep at most three references without grid or tick strokes. Keep the bar baseline, units, date/timezone context and scatter titles.
 - Small single-series category bars may use direct values and omit the value ruler only when every reading fits. Crowding retains a sparse ruler. `axes: 'full' | 'none'` is explicit.
 - Trace/profile reports fit all depths. Preserve interval proportions and parentage while adapting row height. Disabling optional navigation clears selection and restores that fit.
 
-Complete components default to full rulers. Explicit `configure({ axes: 'minimal' })` uses the shared report ruler rules. This replaces the former card/compact/summary presets: those example hosts now use sparse rulers, retained unit/date context and report label fitting. This API consolidation intentionally unifies their ruler density; sample connections, gaps, stacking, paint identity and exact readings do not change. Components retain navigation defaults. All surfaces share source semantics, tokens and the painter.
+Complete components default to full rulers and navigation controls. Explicit `configure({ axes: 'minimal' })` uses the shared sparse ruler rules, retaining unit/date context and report label fitting. All surfaces share source semantics, tokens and the painter.
 
-Exported HTML acts as a document host around this headless view. It shows authored titles, descriptions and applicable series legends by default. Export options `caption: false` and `legend: false` (CLI `--no-caption` and `--no-legend`) control those disclosures. This host disclosure does not change plot geometry or readings. Captions use the plot's surface and text roles so differently themed fragments remain readable together; this intentionally fills the caption background from the host theme.
+Exported HTML acts as a document host around this headless view. It shows authored titles, descriptions and applicable series legends by default. Export options `caption: false` and `legend: false` (CLI `--no-caption` and `--no-legend`) control those disclosures. This host disclosure does not change plot geometry or readings. Captions use the plot's surface and text roles so differently themed fragments remain readable together.
 
 ## Color and state
 
@@ -79,8 +79,6 @@ A host toolbar uses `slot="toolbar"` and the component's control snapshots/actio
 `configure()` keeps compatible state. Disabling chart input also disables inspection, viewport and collapse actions. Filtering toolbar buttons retains keyboard access and a visible focus target. Outside pointer/focus dismissal is the default; a host can explicitly opt out with `dismissOnOutside: false` while retaining in-chart dismissal.
 
 ## Review changes
-
-The scatter paint revision on 2026-10-27 replaces the former 0.78 resting opacity with 1.0. Translucent fill and separator strokes created a pale fringe around small points. Opaque paint gives the same source hues a clear silhouette, retaining the existing radius/size encoding, surface separator and independent hover/selection behavior. This is a deliberate paint revision to baseline v1, reflected in the shared scatter token and native-density Canvas regressions.
 
 Use the production examples: `report.html`, `headless.html`, `mark-inspection.html`, `color-system.html`, `interaction.html`, `linked-analysis.html` and `embedding.html`. Review light/dark at desktop and 320–390px widths, including default, hover, selection plus another hover, and dismissal. Include native DPR, exact readings and neighboring plots.
 

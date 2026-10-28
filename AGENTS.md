@@ -1,6 +1,6 @@
 # ScopeView contributor instructions
 
-ScopeView is an independent Canvas chart library. Follow the parent workspace guide and preserve existing changes. Console integration and external publication are separate from component work.
+ScopeView is an independent Canvas chart library for metric charts, trace timelines and profile flame graphs.
 
 ## Architecture
 

@@ -148,7 +148,7 @@ scopeview schema
 scopeview schema > document.schema.json
 ```
 
-Print one complete self-contained JSON Schema 2020-12 document. Its ID is `urn:scopedb:scopeview:document:1`; local `$defs` cover metric, trace and profile documents. No hosted resolver or family selector is needed. This is a structural authoring resource; the compiler remains authoritative for references, row widths, intervals, cycles and other semantics.
+Print one complete self-contained JSON Schema 2020-12 document. Its ID is `urn:scopedb:scopeview:document:1`; local `$defs` cover metric, trace and profile documents. No hosted resolver or family selector is needed. This is a structural authoring resource; the compiler validates references, row widths, intervals, cycles and other semantics.
 
 The schema covers chart documents, including strict configuration keys. It does not describe theme files. `schema` always prints JSON and accepts only `--help`/`-h`; `--json`, positional inputs and other options are usage errors.
 
@@ -221,7 +221,7 @@ The document and theme are validated and HTML is built before missing parents ar
 
 Failures print one object on stderr with `status: 'error'`, `schemaVersion`, `scopeviewVersion` (null only if metadata cannot be read) and `diagnostics`. Each diagnostic has `severity`, `code`, `path` (null without an input location) and `message`. Codes, severity, paths and protocol version are stable; human messages may evolve. The first fatal compiler error retains its original path, such as `data.rows[2][1]`.
 
-Unknown or removed document fields produce `ERR_SCOPEVIEW_DOCUMENT`; unknown theme fields produce `ERR_SCOPEVIEW_THEME`. For example, `options.toolip` reports that exact path and `Unknown option.`; no output is published.
+Unknown document fields produce `ERR_SCOPEVIEW_DOCUMENT`; unknown theme fields produce `ERR_SCOPEVIEW_THEME`. For example, `options.toolip` reports that exact path and `Unknown option.`; no output is published.
 
 Relationship warnings are `HIERARCHY_MISSING_PARENT` at the original parent field and `TRACE_OUTSIDE_PARENT` at the original span. Warnings are sorted by path/code and do not alter sources. Component UI settings are rejected inside a document, including during export.
 

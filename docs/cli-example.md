@@ -2,7 +2,7 @@
 
 This worked example creates a bar-chart document, applies a reusable theme and exports offline HTML. It shows every command and output, followed by the required fields in both files. For command signatures, all options, defaults and exit codes, use the [CLI reference](cli.md).
 
-The transcript uses ScopeView 0.1.0, a POSIX shell and the macOS ARM64 archive. Its starting directory is `/private/tmp/scopeview-cli-walkthrough`; your absolute output paths will reflect your own directory. Commands exit 0 unless another exit code is shown.
+The transcript uses ScopeView 0.1.0, a POSIX shell and the macOS ARM64 archive. Its starting directory is `/tmp`; your absolute output paths will reflect your own directory. Commands exit 0 unless another exit code is shown.
 
 ## 1. Make the CLI available
 
@@ -41,7 +41,7 @@ pwd
 stdout:
 
 ```text
-/private/tmp/scopeview-cli-walkthrough/scopeview-demo
+/tmp/scopeview-demo
 ```
 
 ## 3. Generate chart.json
@@ -189,7 +189,7 @@ scopeview render chart.json -o chart.html --theme ./theme.json --fonts
 stdout:
 
 ```text
-/private/tmp/scopeview-cli-walkthrough/scopeview-demo/chart.html
+/tmp/scopeview-demo/chart.html
 ```
 
 `chart.json` and `-o chart.html` are required. `--theme` and `--fonts` are optional. Open `chart.html` in a browser. It includes the data, renderer, styles, resolved theme and Inter Latin fonts, and works offline without the JSON files beside it. The caption shows "Requests by service". Focus the plot and use the arrow keys or Home/End to inspect its numeric rows, including the zero value. The `missing` row remains `null` in the embedded data and paints no bar; keyboard inspection in this vertical bar example visits the three numeric rows.
@@ -219,7 +219,7 @@ scopeview render chart.json -o chart.html --theme ./theme.json --fonts --force
 stdout:
 
 ```text
-/private/tmp/scopeview-cli-walkthrough/scopeview-demo/chart.html
+/tmp/scopeview-demo/chart.html
 ```
 
 ## 8. Reuse the document
@@ -233,7 +233,7 @@ scopeview render chart.json -o chart-default.html
 stdout:
 
 ```text
-/private/tmp/scopeview-cli-walkthrough/scopeview-demo/chart-default.html
+/tmp/scopeview-demo/chart-default.html
 ```
 
 Or create a fragment with the custom theme and fonts, without its caption:
@@ -245,7 +245,7 @@ scopeview render chart.json -o chart-fragment.html --format fragment --theme ./t
 stdout:
 
 ```text
-/private/tmp/scopeview-cli-walkthrough/scopeview-demo/chart-fragment.html
+/tmp/scopeview-demo/chart-fragment.html
 ```
 
 Fragments are for hosts that permit their inline scripts/styles. See [fragment requirements](embedding.md#fragments).
@@ -265,7 +265,7 @@ stdout is one JSON line, formatted here for readability:
   "schemaVersion": 1,
   "scopeviewVersion": "0.1.0",
   "input": {
-    "path": "/private/tmp/scopeview-cli-walkthrough/scopeview-demo/chart.json",
+    "path": "/tmp/scopeview-demo/chart.json",
     "bytes": 579,
     "sha256": "6c511bdf1e6ce99149dbdefda0e42e0be9b99560122ecbb46ee2bd3f45db8d06"
   },

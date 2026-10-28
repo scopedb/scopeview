@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { contrastingInk, inspectionFill } from '../../../src/renderers/canvas/contrast.js';
 
 describe('Canvas label contrast', () => {
-  it('chooses readable ink across the Console palette and host theme overrides', () => {
+  it('chooses readable ink across the categorical palette and host theme overrides', () => {
     expect(contrastingInk('rgb(50, 128, 221)', 'rgb(255, 255, 255)', 'red')).toBe('#000000');
     expect(contrastingInk('rgb(150, 61, 80)', 'rgb(255, 255, 255)', 'red')).toBe('#ffffff');
     expect(contrastingInk('rgb(10, 20, 30)', 'rgb(255, 255, 255)', 'red')).toBe('#ffffff');
