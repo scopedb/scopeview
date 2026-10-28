@@ -18,16 +18,16 @@ Run the CLI without adding a project dependency. Choose your package manager; al
 
 ```sh
 # npm
-npx --yes --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
-npx --yes --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
+npx --yes @scopedb/scopeview example bar > chart.json
+npx --yes @scopedb/scopeview render chart.json --output chart.html
 
 # pnpm
-pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview example bar > chart.json
-pnpm --package=@scopedb/scopeview@0.1.0 dlx scopeview render chart.json --output chart.html
+pnpm dlx @scopedb/scopeview example bar > chart.json
+pnpm dlx @scopedb/scopeview render chart.json --output chart.html
 
 # Bun
-bunx --package @scopedb/scopeview@0.1.0 scopeview example bar > chart.json
-bunx --package @scopedb/scopeview@0.1.0 scopeview render chart.json --output chart.html
+bunx @scopedb/scopeview example bar > chart.json
+bunx @scopedb/scopeview render chart.json --output chart.html
 ```
 
 Open `chart.html` in a browser. It contains the data and renderer and works offline. If the package is already installed in your project, use `npx scopeview`, `pnpm exec scopeview` or `bunx scopeview`. Add `--help` to list commands.
