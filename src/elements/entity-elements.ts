@@ -13,10 +13,14 @@ import {
   type CompiledProfile
 } from '../families/profile.js';
 import { HierarchyElement } from './hierarchy-element.js';
+import {
+  traceInspectionContext,
+  profileInspectionContext
+} from '../families/hierarchy/inspection-context.js';
 
 export class ScopeTraceElement extends HierarchyElement<TraceSpan, TraceDocument, CompiledTrace> {
   constructor() {
-    super('trace', compileTrace, createTraceView);
+    super('trace', compileTrace, createTraceView, traceInspectionContext);
   }
 }
 export class ScopeFlameElement extends HierarchyElement<
@@ -25,7 +29,7 @@ export class ScopeFlameElement extends HierarchyElement<
   CompiledProfile
 > {
   constructor() {
-    super('profile', compileProfile, createProfileView);
+    super('profile', compileProfile, createProfileView, profileInspectionContext);
   }
 }
 export function defineScopeTrace() {

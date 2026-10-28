@@ -5,23 +5,33 @@ import {
   type HierarchyView
 } from '../families/hierarchy/layout.js';
 import type { Entity } from '../families/hierarchy/model.js';
+import type { ChartInteraction } from '../core/scene.js';
+import type { HierarchyInspectionContext } from '../core/inspection-context.js';
 import { View, type ViewOptions, type ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
 
 /** Shared trace/profile viewport; controls and selected-source details are host-owned. */
-export function createHierarchy<Source extends Entity>(
+export function createHierarchy<Source extends Entity, Compiled>(
   host: HTMLElement,
   document: unknown,
-  prepare: (document: unknown) => HierarchyView<Source>,
+  compile: (document: unknown) => Compiled,
+  createView: (compiled: Compiled) => HierarchyView<Source>,
+  context: (
+    compiled: Compiled,
+    target: ChartInteraction<Source> | null
+  ) => HierarchyInspectionContext | null,
   options: ViewOptions<Source>
 ): ChartView {
   options = parseViewOptions(options);
-  let model = prepare(document);
+  let compiled = compile(document);
+  let rendered = compiled;
+  let model = createView(compiled);
   const view: View<Source> = new View(
     host,
     options,
     '',
     (width, height, measure) => {
+      rendered = compiled;
       const state = view.viewport?.state(
         model.rowCount * model.rowHeight,
         hierarchyViewportHeight(height, options.axes ?? 'minimal')
@@ -36,6 +46,7 @@ export function createHierarchy<Source extends Entity>(
         !view.viewport
       );
     },
+    (target) => context(rendered, target),
     {
       inputConsumed: () => view.viewport?.consumed ?? false,
       onNavigate(target) {
@@ -70,9 +81,11 @@ export function createHierarchy<Source extends Entity>(
   };
   view.update = (document) => {
     view.assertActive();
-    const next = prepare(document);
+    const next = compile(document);
+    const nextView = createView(next);
     view.viewport?.cancel();
-    model = next;
+    compiled = next;
+    model = nextView;
     view.status(model.items.length ? null : 'No data');
     view.changed();
   };

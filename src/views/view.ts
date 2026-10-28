@@ -1,4 +1,5 @@
 import type { ChartInteraction, Position } from '../core/scene.js';
+import type { InspectionContext } from '../core/inspection-context.js';
 import type { SceneLayout } from '../runtime/types.js';
 import { ReadingRuntime } from '../runtime/reading-runtime.js';
 import { node } from '../ui/dom.js';
@@ -23,6 +24,7 @@ export class View<Source> extends ViewHost implements ChartView {
   #statusMessage: string | null = null;
   #selected: ChartInteraction<Source> | null = null;
   #inspected: ChartInteraction<Source> | null = null;
+  #inspectedSeries: string | null = null;
   #position: Position | null = null;
   #cleanups: (() => void)[] = [];
 
@@ -31,6 +33,10 @@ export class View<Source> extends ViewHost implements ChartView {
     readonly options: ViewOptions<Source>,
     tokens: string,
     layout: SceneLayout<Source>,
+    private readonly contextFor: (
+      target: ChartInteraction<Source> | null,
+      series: string | null
+    ) => InspectionContext | null,
     input: {
       onNavigate?(target: ChartInteraction<Source>): void;
       inputConsumed?(): boolean;
@@ -104,11 +110,16 @@ export class View<Source> extends ViewHost implements ChartView {
             : null;
     if (session.selected !== this.#selected) {
       this.#selected = session.selected;
-      this.options.onSelect?.(this.#selected);
+      this.options.onSelect?.(
+        this.#selected,
+        this.contextFor(this.#selected, session.selectedSeries)
+      );
     }
-    if (this.#inspected !== target) {
+    const series = target ? session.series : null;
+    if (this.#inspected !== target || this.#inspectedSeries !== series) {
       this.#inspected = target;
-      this.options.onInspect?.(target);
+      this.#inspectedSeries = series;
+      this.options.onInspect?.(target, this.contextFor(target, series));
     }
     if (!target || this.options.tooltip === false) {
       hideInspection(this.#tooltip);
@@ -129,7 +140,8 @@ export class View<Source> extends ViewHost implements ChartView {
     hideInspection(this.#tooltip);
     if (this.#inspected !== null) {
       this.#inspected = null;
-      if (!this.disposed) this.options.onInspect?.(null);
+      this.#inspectedSeries = null;
+      if (!this.disposed) this.options.onInspect?.(null, null);
     }
   }
   status(message: string | null) {

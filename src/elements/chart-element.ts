@@ -11,6 +11,8 @@ import { legendReadings } from '../families/metrics/readings.js';
 import type { ChartRenderer } from './plot-contract.js';
 import type { ChartInteraction, Inspect, Position } from '../core/scene.js';
 import { ChartSession } from '../core/session.js';
+import { metricInspectionContext } from '../families/metrics/inspection-context.js';
+import { withInspectionContext, type MetricInspectionContext } from '../core/inspection-context.js';
 import { inspectionText } from '../core/labels.js';
 import type { RangeSelectionBinding } from '../core/range.js';
 import {
@@ -62,6 +64,7 @@ export interface ScopeInspectionDetail {
   rowIndices: number[];
   rows: (string | null)[][];
   provenance?: DataProvenance;
+  context: MetricInspectionContext | null;
 }
 export interface ScopeChartReadyDetail {
   visualization: ChartDisplayType;
@@ -665,23 +668,28 @@ export class ScopeChartElement extends HTMLElement {
   }
   #inspectionDetail(
     value = this.#session.active,
-    pinned = this.#session.pinned
+    pinned = this.#session.pinned,
+    series = this.#session.series
   ): ScopeInspectionDetail {
-    const sources = value?.sources ?? [];
+    const sources = value?.sources ?? [],
+      compiled = this.#compiled;
     const time = value ? this.#plot?.model?.interactionByKey.get(value.key)?.time : undefined;
-    return {
-      kind: 'metric',
-      key: value?.key ?? null,
-      pinned,
-      series: value ? this.#session.series : null,
-      cursorTimeMs: this.#cursorTimeMs,
-      ...(time ? { time: { ...time } } : {}),
-      rows: sources.map((row) => [...row]),
-      rowIndices: sources.map((row) => this.#compiled!.document.data.rows.indexOf(row)),
-      ...(this.#compiled?.document.semantics?.provenance
-        ? { provenance: structuredClone(this.#compiled.document.semantics.provenance) }
-        : {})
-    };
+    return withInspectionContext(
+      {
+        kind: 'metric',
+        key: value?.key ?? null,
+        pinned,
+        series: value ? series : null,
+        cursorTimeMs: this.#cursorTimeMs,
+        ...(time ? { time: { ...time } } : {}),
+        rows: sources.map((row) => [...row]),
+        rowIndices: sources.map((row) => compiled!.document.data.rows.indexOf(row)),
+        ...(compiled?.document.semantics?.provenance
+          ? { provenance: structuredClone(compiled.document.semantics.provenance) }
+          : {})
+      },
+      () => (compiled ? metricInspectionContext(compiled, value, series) : null)
+    );
   }
   #clearInspection(
     had = this.#session.active !== null,
@@ -735,7 +743,11 @@ export class ScopeChartElement extends HTMLElement {
     if (changed)
       this.#emit(
         'scope-select',
-        this.#inspectionDetail(this.#session.selected, this.#session.selected !== null)
+        this.#inspectionDetail(
+          this.#session.selected,
+          this.#session.selected !== null,
+          this.#session.selectedSeries
+        )
       );
     this.#stateChanged();
   }

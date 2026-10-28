@@ -1,6 +1,10 @@
 import { object, boolean } from '../data/validation.js';
 import type { ChartInteraction, ChartScene, Position } from '../core/scene.js';
 import { inspectionText } from '../core/labels.js';
+import {
+  withInspectionContext,
+  type HierarchyInspectionContext
+} from '../core/inspection-context.js';
 import { ViewportSession, type ViewportState } from '../core/viewport.js';
 import type { Entity, EntityDocument, Hierarchy } from '../families/hierarchy/model.js';
 import {
@@ -51,6 +55,7 @@ export interface HierarchyInspectionDetail<Source extends Entity = Entity> {
   key: string | null;
   pinned: boolean;
   sources: Source[];
+  context: HierarchyInspectionContext | null;
 }
 export interface HierarchyReadyDetail {
   visualization: 'trace' | 'profile';
@@ -83,6 +88,7 @@ export class HierarchyElement<
 > extends HTMLElement {
   static observedAttributes = ['loading', 'error', 'theme', 'style', 'class'];
   #compiled: Compiled | null = null;
+  #renderedCompiled: Compiled | null = null;
   #ui: EntityComponentOptions = {};
   get #options() {
     return { ...this.#ui, interactive: this.#compiled?.document.options?.interactive };
@@ -102,6 +108,7 @@ export class HierarchyElement<
   #page = 0;
   #lastKey: string | null = null;
   #lastPinned = false;
+  #lastCompiled: Compiled | null = null;
   #pendingPin: string | null | undefined;
   #pendingViewport: ViewportState | null = null;
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
@@ -115,7 +122,11 @@ export class HierarchyElement<
     private createView: (
       compiled: Compiled,
       collapsed: ReadonlySet<string>
-    ) => HierarchyView<Source>
+    ) => HierarchyView<Source>,
+    private inspectionContext: (
+      compiled: Compiled,
+      target: ChartInteraction<Source> | null
+    ) => HierarchyInspectionContext | null
   ) {
     super();
     this.#root = this.attachShadow({ mode: 'open' });
@@ -528,6 +539,7 @@ export class HierarchyElement<
   #dispose() {
     this.#runtime?.dispose();
     this.#runtime = null;
+    this.#renderedCompiled = null;
     this.#input?.dispose();
     this.#input = null;
   }
@@ -601,7 +613,7 @@ export class HierarchyElement<
             this.#viewport.set(this.#pendingViewport);
             this.#pendingViewport = null;
           }
-          return layoutHierarchy(
+          const scene = layoutHierarchy(
             current,
             width,
             height,
@@ -609,6 +621,8 @@ export class HierarchyElement<
             this.viewport,
             this.#ui.axes ?? 'full'
           );
+          this.#renderedCompiled = this.#compiled;
+          return scene;
         },
         onNavigate: (target) => this.#reveal(target),
         inputConsumed: () => this.#input?.consumed ?? false,
@@ -679,12 +693,18 @@ export class HierarchyElement<
     }
   }
   #detail(): HierarchyInspectionDetail<Source> {
-    return {
-      kind: this.kind,
-      key: this.#runtime?.session.active?.key ?? null,
-      pinned: this.#runtime?.session.pinned ?? false,
-      sources: structuredClone([...(this.#runtime?.session.active?.sources ?? [])])
-    };
+    const active = this.#runtime?.session.active ?? null,
+      compiled = this.#renderedCompiled,
+      project = this.inspectionContext;
+    return withInspectionContext(
+      {
+        kind: this.kind,
+        key: active?.key ?? null,
+        pinned: this.#runtime?.session.pinned ?? false,
+        sources: structuredClone([...(active?.sources ?? [])])
+      },
+      () => (compiled ? project(compiled, active) : null)
+    );
   }
   #clearInspection() {
     this.#pendingPin = undefined;
@@ -700,7 +720,8 @@ export class HierarchyElement<
     const active = this.#runtime?.session.active,
       pinned = this.#runtime?.session.pinned ?? false;
     const changed = this.#lastKey !== (active?.key ?? null),
-      unpinned = this.#lastPinned && !pinned;
+      unpinned = this.#lastPinned && !pinned,
+      snapshotChanged = !!active && this.#lastCompiled !== this.#renderedCompiled;
     const tooltip = this.#el('.tooltip');
     this.#el('.inspect').toggleAttribute('data-active', pinned);
     const id = active?.sources[0]?.id,
@@ -730,9 +751,12 @@ export class HierarchyElement<
     }
     this.#lastKey = active?.key ?? null;
     this.#lastPinned = pinned;
+    this.#lastCompiled = active ? this.#renderedCompiled : null;
     if (!this.#stateTransaction) {
-      if (emit || changed || unpinned) this.#emit('scope-inspect', this.#detail());
-      if (unpinned || (emit && pinned)) this.#emit('scope-select', this.#detail());
+      if (emit || changed || unpinned || snapshotChanged)
+        this.#emit('scope-inspect', this.#detail());
+      if (unpinned || ((emit || snapshotChanged) && pinned))
+        this.#emit('scope-select', this.#detail());
     }
     this.#stateChanged(reason);
   }

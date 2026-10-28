@@ -5,6 +5,7 @@ import type { ResultRow } from '../data/result.js';
 import { scalarView, type ScalarValue } from './scalar.js';
 import { View, type ViewOptions, type ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
+import { metricInspectionContext } from '../families/metrics/inspection-context.js';
 import tokens from '../theme/metric-tokens.css?inline';
 
 /** Aggregate documents use HTML; plot documents instantiate the report Canvas runtime. */
@@ -19,6 +20,7 @@ export function createMetric(
   let inner: ChartView;
   let disposed = false;
   let theme = options.theme ?? 'light';
+  let rendered = compiled;
   const scalarValues = (value: CompiledChart): ScalarValue[] => {
     const mapping = value.config.mapping;
     if (mapping.kind !== 'aggregate' || !value.document.data.rows.length) return [];
@@ -34,8 +36,15 @@ export function createMetric(
   const mount = () => {
     if (compiled.config.mapping.kind === 'aggregate')
       return scalarView(host, scalarValues(compiled), { theme });
-    const view = new View(host, { ...options, theme }, tokens, (width, height, measure, hidden) =>
-      layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal')
+    const view = new View(
+      host,
+      { ...options, theme },
+      tokens,
+      (width, height, measure, hidden) => {
+        rendered = compiled;
+        return layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal');
+      },
+      (target, series) => metricInspectionContext(rendered, target, series)
     );
     view.status(compiled.document.data.rows.length ? null : 'No data');
     view.changed();
@@ -72,7 +81,7 @@ export function createMetric(
     layout = nextLayout;
     const aggregate = next.config.mapping.kind === 'aggregate';
     if (aggregate !== (compiled.config.mapping.kind === 'aggregate')) {
-      if (inner instanceof View && inner.runtime.session.selected) options.onSelect?.(null);
+      if (inner instanceof View && inner.runtime.session.selected) options.onSelect?.(null, null);
       if (inner instanceof View) inner.hideReading();
       inner.dispose();
       compiled = next;

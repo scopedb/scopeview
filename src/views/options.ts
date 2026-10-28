@@ -1,13 +1,14 @@
 import { object, choice, boolean, fail } from '../data/validation.js';
 import type { AxisMode, ChartInteraction } from '../core/scene.js';
 import { defineTheme, type ChartTheme } from '../theme/config.js';
+import type { InspectionContext } from '../core/inspection-context.js';
 
 export interface ViewOptions<Source> {
   theme?: ChartTheme;
   axes?: AxisMode;
   tooltip?: boolean;
-  onInspect?(target: ChartInteraction<Source> | null): void;
-  onSelect?(target: ChartInteraction<Source> | null): void;
+  onInspect?(target: ChartInteraction<Source> | null, context: InspectionContext | null): void;
+  onSelect?(target: ChartInteraction<Source> | null, context: InspectionContext | null): void;
   onError?(error: unknown): void;
 }
 

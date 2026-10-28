@@ -90,11 +90,16 @@ Events bubble and cross Shadow DOM. ScopeView element listeners are typed by `/e
 ```ts
 chart.addEventListener('scope-select', (event) => {
   if (event.detail.pinned) console.log(event.detail.rows);
+  console.log(event.detail.context);
 });
 chart.addEventListener('scope-error', (event) => {
   console.error(event.detail.message);
 });
 ```
+
+`scope-inspect` and `scope-select` details include `context`, using the same detached, serializable [source context](headless.md#inspect-source-context) as headless callbacks. It contains a snapshot ID, exact original values and field or hierarchy information, and is `null` when the reading is cleared. Existing detail fields remain available. Use `scope-ready` to invalidate application caches after a document replacement; keys alone do not identify a data snapshot.
+
+Event context captures the displayed snapshot and is copied on its first read, then reused within that event. Retained events still describe their original snapshot after data is replaced; unread events do not copy ancestor chains. When a hierarchy reading or pin survives until a replacement paints, the component reports the updated context even if its key is unchanged.
 
 | Event                           | Detail                                                             |
 | ------------------------------- | ------------------------------------------------------------------ |

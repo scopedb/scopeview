@@ -10,6 +10,8 @@
       h1 { max-width: 1080px; margin: 0 auto 24px; font-size: 18px; }
       section { min-width: 0; }
       h2 { font-size: 12px; font-weight: 400; }
+      details { margin-top: 8px; }
+      pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
       .chart { --scope-chart-height: 240px; }
       @media (max-width: 700px) { body { margin: 8px; } main { grid-template-columns: minmax(0,1fr); } }
     </style>
@@ -28,9 +30,20 @@
           const host = document.createElement('div');
           host.className = 'chart';
           host.id = `${family}-${theme}`;
-          section.append(heading, host);
+          const details = document.createElement('details');
+          const summary = document.createElement('summary');
+          summary.textContent = 'Inspection context';
+          const output = document.createElement('pre');
+          output.textContent = 'Hover or use the arrow keys to inspect a source.';
+          details.append(summary, output);
+          section.append(heading, host, details);
           document.querySelector('main').append(section);
-          createVisualization(host, demoDocument(family), { theme });
+          createVisualization(host, demoDocument(family), {
+            theme,
+            onInspect: (_target, context) => {
+              output.textContent = context ? JSON.stringify(context, null, 2) : 'No inspected source.';
+            }
+          });
         }
       }
     </script>

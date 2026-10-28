@@ -1,6 +1,7 @@
 import { compileProfile, createProfileView, type ProfileFrame } from './families/profile.js';
 import { createHierarchy } from './views/hierarchy.js';
 import type { ViewOptions } from './views/view.js';
+import { profileInspectionContext } from './families/hierarchy/inspection-context.js';
 
 export function createFlame(
   host: HTMLElement,
@@ -10,7 +11,9 @@ export function createFlame(
   return createHierarchy(
     host,
     document,
-    (value) => createProfileView(compileProfile(value)),
+    compileProfile,
+    createProfileView,
+    profileInspectionContext,
     options
   );
 }
