@@ -60,10 +60,24 @@ jobs:
             output="$(pnpm exec wrangler versions upload \
               --preview-alias "pr-${{ github.event.pull_request.number }}" \
               --message "GitHub PR #${{ github.event.pull_request.number }} at ${GITHUB_SHA}" 2>&1 | tee /dev/stderr)"
-            preview_url="$(grep -Eo 'https://[^[:space:]]+\.workers\.dev' <<< "${output}" | tail -n 1 || true)"
+            version_url="$(grep 'Version Preview URL:' <<< "${output}" | grep -Eo 'https://[^[:space:]]+\.workers\.dev' | tail -n 1 || true)"
+            alias_url="$(grep 'Version Preview Alias URL:' <<< "${output}" | grep -Eo 'https://[^[:space:]]+\.workers\.dev' | tail -n 1 || true)"
+            preview_url="${alias_url:-${version_url}}"
             if [[ -n "${preview_url}" ]]; then
               echo "url=${preview_url}" >> "${GITHUB_OUTPUT}"
             fi
+            {
+              echo "### Documentation Preview"
+              echo ""
+              echo "| Target | URL |"
+              echo "| :--- | :--- |"
+              if [[ -n "${alias_url}" ]]; then
+                echo "| PR #${{ github.event.pull_request.number }} (branch alias) | ${alias_url} |"
+              fi
+              if [[ -n "${version_url}" ]]; then
+                echo "| Commit \`${GITHUB_SHA::7}\` (immutable) | ${version_url} |"
+              fi
+            } >> "${GITHUB_STEP_SUMMARY}"
           else
             pnpm exec wrangler deploy
             echo "url=https://scopeview.scopedb.io" >> "${GITHUB_OUTPUT}"
