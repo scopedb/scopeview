@@ -170,6 +170,27 @@ for (const family of ['trace', 'profile'] as const) {
       expect(result.selected?.snapshotId).not.toBe(result.snapshot);
     });
 
+    test('focusNode during loading retains the saved state until a runtime is ready', async ({
+      page
+    }) => {
+      const result = await page.evaluate(async () => {
+        const f = window.notificationFixture;
+        const chart = f.chart as Hierarchy;
+        f.pin();
+        const saved = chart.viewState;
+        chart.loading = true;
+        await f.settle();
+        chart.focusNode('child', { pin: true });
+        const loading = chart.viewState;
+        chart.loading = false;
+        await f.settle();
+        return { saved, loading, restored: chart.viewState, selected: f.latest.select?.key };
+      });
+      expect(result.loading).toEqual(result.saved);
+      expect(result.restored).toEqual(result.saved);
+      expect(result.selected).toBe(result.saved.pinnedKey);
+    });
+
     test('a viewport changed by the navigation reading callback is the last published window', async ({
       page
     }) => {

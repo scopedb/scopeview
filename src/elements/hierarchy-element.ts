@@ -369,8 +369,12 @@ export class HierarchyElement<
     this.#input?.cancel();
     const tree = this.#compiled?.hierarchy;
     if (!tree?.byId.has(id)) throw new RangeError(`Unknown node: ${id}`);
-    this.#pendingPin = undefined;
-    this.#pendingReveal = null;
+    const key = this.#view?.byId.get(id)?.interaction.key;
+    const model = this.scene;
+    if (key && (model?.navigation ?? model)?.interactionByKey.has(key)) {
+      this.#pendingPin = undefined;
+      this.#pendingReveal = null;
+    }
     let parent = tree.byId.get(id)?.parentId,
       expanded = false;
     while (parent && tree.byId.has(parent)) {
