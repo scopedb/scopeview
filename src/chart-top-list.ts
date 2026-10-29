@@ -6,3 +6,4 @@ import { layoutTopList } from './families/metrics/layout-top-list.js';
 export const createChart = chartFactory('top-list', layoutTopList, compileChart);
 export type { ChartView, ChartTheme, ThemeConfig, ThemeMode, ViewOptions } from './views/view.js';
 export type { ChartDocumentInput } from './families/metrics/document.js';
+export type { MetricInspectionContext } from './core/inspection-context.js';

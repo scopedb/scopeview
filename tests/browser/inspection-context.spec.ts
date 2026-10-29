@@ -290,8 +290,9 @@ test('headless callbacks defer deep source copies and retain their original snap
     const clone = window.structuredClone;
     let copies = 0;
     window.structuredClone = (value, options) => {
-      const candidate = value as { kind?: string } | null;
-      if (candidate?.kind === 'profile' && Object.hasOwn(candidate, 'ancestors')) copies++;
+      const candidate = value as { frame?: unknown; ancestors?: unknown } | null;
+      if (candidate && Object.hasOwn(candidate, 'frame') && Object.hasOwn(candidate, 'ancestors'))
+        copies++;
       return clone(value, options);
     };
     try {
@@ -445,8 +446,9 @@ test('unused deep profile context is not cloned and retained events materialize 
     const clone = window.structuredClone;
     let copies = 0;
     window.structuredClone = (value, options) => {
-      const candidate = value as { kind?: unknown; ancestors?: unknown } | null;
-      if (candidate?.kind === 'profile' && Array.isArray(candidate.ancestors)) copies++;
+      const candidate = value as { frame?: unknown; ancestors?: unknown } | null;
+      if (candidate && Object.hasOwn(candidate, 'frame') && Array.isArray(candidate.ancestors))
+        copies++;
       return clone(value, options);
     };
     try {

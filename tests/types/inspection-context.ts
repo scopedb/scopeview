@@ -1,17 +1,17 @@
 import { expectTypeOf } from 'vitest';
-import { createChart } from '../../src/chart.js';
-import { createChart as createAxis } from '../../src/chart-axis.js';
-import { createTrace } from '../../src/trace.js';
-import { createFlame } from '../../src/flame.js';
-import { createVisualization } from '../../src/headless.js';
-import { createReport } from '../../src/report.js';
+import { createChart, type MetricInspectionContext } from '../../src/chart.js';
+import {
+  createChart as createAxis,
+  type MetricInspectionContext as AxisInspectionContext
+} from '../../src/chart-axis.js';
+import { createTrace, type TraceInspectionContext } from '../../src/trace.js';
+import { createFlame, type ProfileInspectionContext } from '../../src/flame.js';
+import { createVisualization, type InspectionContext } from '../../src/headless.js';
+import {
+  createReport,
+  type InspectionContext as ReportInspectionContext
+} from '../../src/report.js';
 import type { ScopeTraceElement, ScopeFlameElement } from '../../src/element.js';
-import type {
-  InspectionContext,
-  MetricInspectionContext,
-  TraceInspectionContext,
-  ProfileInspectionContext
-} from '../../src/index.js';
 
 // Compiled by pnpm check; these consumers need no DOM at test runtime.
 export function inspectionContextTypes(
@@ -19,6 +19,8 @@ export function inspectionContextTypes(
   trace: ScopeTraceElement,
   profile: ScopeFlameElement
 ) {
+  expectTypeOf<AxisInspectionContext>().toEqualTypeOf<MetricInspectionContext>();
+  expectTypeOf<ReportInspectionContext>().toEqualTypeOf<InspectionContext>();
   for (const create of [createChart, createAxis])
     create(
       host,

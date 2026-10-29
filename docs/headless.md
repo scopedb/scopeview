@@ -59,9 +59,9 @@ Hover, click and keyboard arrows inspect. Home/End jump to boundary targets; Esc
 
 ## Inspect source context
 
-Both callbacks receive a second argument with exact source context, or `null`. Metric factories infer `MetricInspectionContext`, `createTrace` infers `TraceInspectionContext`, and `createFlame` infers `ProfileInspectionContext`; mixed-family factories use the `InspectionContext` union. `ViewOptions<Source, Context>` also accepts an explicit context type. Existing one-argument callbacks continue to work. Import context types from `@scopedb/scopeview`.
+Both callbacks receive a second argument with exact source context, or `null`. Metric factories infer `MetricInspectionContext`, `createTrace` infers `TraceInspectionContext`, and `createFlame` infers `ProfileInspectionContext`; mixed-family factories use the `InspectionContext` union. Each factory entry and the package root export their corresponding context types.
 
-The context is JSON-serializable and identifies the captured document with `version: 1`, `kind`, `key`, an opaque `snapshotId`, and its optional title and description. Reading these metadata fields does not copy source data. The first data-field read copies the source fields together, and later reads reuse that detached copy. Ignoring context avoids copying rows and ancestor chains. JSON serialization and `structuredClone(context)` read its data fields; retaining a context across updates still reads its original snapshot.
+The context is JSON-serializable and identifies the captured document with `version: 1`, `kind`, `key`, an opaque `snapshotId`, and its optional title and description. Source objects are detached copies of the painted snapshot, so retaining or mutating a context does not affect subsequent updates.
 
 ```ts
 const chart = createChart(host, requests, {
@@ -84,9 +84,7 @@ const chart = createChart(host, requests, {
 
 Metric timestamps and numeric cells retain the supplied strings, including sub-millisecond timestamps, large integers and decimal precision. NULL and zero remain distinct. Use fields and the normalized spec to identify time, value and series roles, including duplicate field names. A metric target can include several source rows at the same time; `series` identifies the inspected series when the pointer identifies one, and is `null` for a whole-target reading. Profile `frame.selfWeight` is the raw self weight; `totalWeight` includes supplied descendants. Missing hierarchy parents are not invented.
 
-`snapshotId` remains stable across inspection, selection, resizing, themes and visibility changes for one compiled document. A successful data replacement receives a different ID even when source keys and values repeat; a failed headless update retains the previous snapshot. A compatible persistent selection can reconcile to the new source, and its callback then carries the new ID and values. Treat a stored context as evidence about that snapshot, and attach the application's dataset or execution ID separately when needed.
-
-Moving between series within one metric target updates the inspect callback's context. Inspecting another source leaves the selected context unchanged. Keyboard navigation clears the persistent selection while keeping the new transient reading. Dismissal supplies `null` for both arguments when clearing a reported reading or selection; an already-null state is not reported again. Repainting alone does not invoke the callbacks. A callback may dismiss or replace data synchronously; ScopeView discards pending notifications for superseded state and keeps dismissed readings hidden. Disposing a headless view cancels pending callbacks without reporting another state. ScopeView only reports context; application actions remain host-owned. The [headless example](../examples/headless.html) displays the callback's JSON beside each family.
+`snapshotId` remains stable across inspection, selection, resizing, themes and visibility changes for one compiled document, and changes when data is replaced. A compatible persistent selection reconciles to the replacement and reports the new `snapshotId` and values; clearing or dismissing a reading or selection reports `null` for both arguments. The [headless example](../examples/headless.html) displays the callback's JSON beside each family.
 
 ## Load layouts on demand
 

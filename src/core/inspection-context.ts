@@ -75,27 +75,29 @@ export function withInspectionContext<Detail extends object, Context extends Ins
 const snapshots = new WeakMap<object, string>();
 
 /** Capture snapshot metadata now; copy family data together on its first read. */
-export function copyInspectionContext<Detail extends { kind: InspectionContext['kind'] }>(
+export function copyInspectionContext<
+  Metadata extends { kind: InspectionContext['kind'] },
+  Sources extends object
+>(
   document: EntityDocument,
   key: string,
-  detail: Detail
-): Detail & InspectionContextBase {
+  metadata: Metadata,
+  sources: Sources
+): Metadata & Sources & InspectionContextBase {
   let snapshotId = snapshots.get(document);
   if (!snapshotId) {
-    snapshotId = Array.from(crypto.getRandomValues(new Uint32Array(4)), (part) =>
-      part.toString(16).padStart(8, '0')
-    ).join('');
+    snapshotId = crypto.randomUUID();
     snapshots.set(document, snapshotId);
   }
   const context = {
     version: 1 as const,
     snapshotId,
     key,
-    kind: detail.kind,
+    ...metadata,
     ...(document.title !== undefined ? { title: document.title } : {}),
     ...(document.description !== undefined ? { description: document.description } : {})
   };
-  let value = detail;
+  let value = sources;
   let pending = true;
   const read = () => {
     if (pending) {
@@ -104,8 +106,7 @@ export function copyInspectionContext<Detail extends { kind: InspectionContext['
     }
     return value;
   };
-  for (const name of Object.keys(detail) as (keyof Detail)[]) {
-    if (name === 'kind') continue;
+  for (const name of Object.keys(sources) as (keyof Sources)[]) {
     Object.defineProperty(context, name, {
       configurable: true,
       enumerable: true,
@@ -115,5 +116,5 @@ export function copyInspectionContext<Detail extends { kind: InspectionContext['
       }
     });
   }
-  return context as Detail & InspectionContextBase;
+  return context as Metadata & Sources & InspectionContextBase;
 }

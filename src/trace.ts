@@ -20,3 +20,4 @@ export function createTrace(
 }
 export type { ChartView, ChartTheme, ThemeConfig, ThemeMode, ViewOptions } from './views/view.js';
 export type { TraceDocument } from './families/trace.js';
+export type { TraceInspectionContext };

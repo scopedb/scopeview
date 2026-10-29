@@ -227,6 +227,9 @@ describe('inspection context', () => {
       })!;
       expect(context.kind).toBe('profile');
       expect(context.snapshotId).toBeTruthy();
+      expect(context.unit).toBe('samples');
+      expect(context.totalWeight).toBe('1');
+      expect(context.profileTotalWeight).toBe(String(count));
       expect(lookup).toHaveBeenCalledTimes(1);
       expect(copies).not.toHaveBeenCalled();
       Object.freeze(context);

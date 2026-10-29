@@ -16,7 +16,10 @@ import {
   type InspectionReading
 } from '../core/inspection-notifications.js';
 import type { ResultRow } from '../data/result.js';
-import { metricInspectionContext } from '../families/metrics/inspection-context.js';
+import {
+  metricInspectionContext,
+  sourceRowIndices
+} from '../families/metrics/inspection-context.js';
 import { withInspectionContext, type MetricInspectionContext } from '../core/inspection-context.js';
 import { inspectionText } from '../core/labels.js';
 import type { RangeSelectionBinding } from '../core/range.js';
@@ -711,7 +714,7 @@ export class ScopeChartElement extends HTMLElement {
         cursorTimeMs,
         ...(time ? { time: { ...time } } : {}),
         rows: sources.map((row) => [...row]),
-        rowIndices: sources.map((row) => compiled?.document.data.rows.indexOf(row) ?? -1),
+        rowIndices: sourceRowIndices(compiled, sources),
         ...(compiled?.document.semantics?.provenance
           ? { provenance: structuredClone(compiled.document.semantics.provenance) }
           : {})

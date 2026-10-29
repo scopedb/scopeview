@@ -24,15 +24,21 @@ export function traceInspectionContext(
 ): TraceInspectionContext | null {
   const span = target?.sources[0];
   if (!target || !span || compiled.hierarchy.byId.get(span.id) !== span) return null;
-  return copyInspectionContext(compiled.document, target.key, {
-    kind: 'trace',
-    span,
-    get ancestors() {
-      return ancestors(span, compiled.hierarchy);
+  return copyInspectionContext(
+    compiled.document,
+    target.key,
+    {
+      kind: 'trace',
+      durationNs: compiled.timings.get(span.id)!.duration.toString(),
+      coverage: compiled.document.coverage ?? 'unknown'
     },
-    durationNs: compiled.timings.get(span.id)!.duration.toString(),
-    coverage: compiled.document.coverage ?? 'unknown'
-  });
+    {
+      span,
+      get ancestors() {
+        return ancestors(span, compiled.hierarchy);
+      }
+    }
+  );
 }
 
 export function profileInspectionContext(
@@ -41,14 +47,20 @@ export function profileInspectionContext(
 ): ProfileInspectionContext | null {
   const frame = target?.sources[0];
   if (!target || !frame || compiled.hierarchy.byId.get(frame.id) !== frame) return null;
-  return copyInspectionContext(compiled.document, target.key, {
-    kind: 'profile',
-    frame,
-    get ancestors() {
-      return ancestors(frame, compiled.hierarchy);
+  return copyInspectionContext(
+    compiled.document,
+    target.key,
+    {
+      kind: 'profile',
+      unit: compiled.document.unit,
+      totalWeight: compiled.weights.get(frame.id)!.total.toString(),
+      profileTotalWeight: compiled.totalWeight.toString()
     },
-    unit: compiled.document.unit,
-    totalWeight: compiled.weights.get(frame.id)!.total.toString(),
-    profileTotalWeight: compiled.totalWeight.toString()
-  });
+    {
+      frame,
+      get ancestors() {
+        return ancestors(frame, compiled.hierarchy);
+      }
+    }
+  );
 }

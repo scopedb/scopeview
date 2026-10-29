@@ -20,3 +20,4 @@ export function createFlame(
 }
 export type { ChartView, ChartTheme, ThemeConfig, ThemeMode, ViewOptions } from './views/view.js';
 export type { ProfileDocument } from './families/profile.js';
+export type { ProfileInspectionContext };
