@@ -21,11 +21,12 @@ function fixture() {
     select: { target: a }
   };
   const read = vi.fn(() => state);
-  const notifications = new InspectionNotifications(read, new Interaction());
+  const interaction = new Interaction();
+  const notifications = new InspectionNotifications(read, interaction);
   const sent: string[] = [];
   const deliver = (value: { target: ChartInteraction<string> | null }) =>
     sent.push(value.target?.key ?? 'null');
-  return { a, state, read, notifications, sent, deliver };
+  return { a, state, read, interaction, notifications, sent, deliver };
 }
 
 describe('inspection notifications', () => {
@@ -34,9 +35,7 @@ describe('inspection notifications', () => {
     'select'
   ] as const)('preserves fresh %s-first order and independently coalesces nested channel values', (first: InspectionChannel) => {
     const other = first === 'inspect' ? 'select' : 'inspect';
-    const { state } = fixture();
-    const interaction = new Interaction();
-    const notifications = new InspectionNotifications(() => state, interaction);
+    const { state, interaction, notifications } = fixture();
     const seen: string[] = [];
     const emit = () => {
       const captured = notifications.capture();
@@ -87,13 +86,13 @@ describe('inspection notifications', () => {
     expect(seen).toEqual(['first:a/a', 'after:a/b', 'second:a/b', 'first:b/b', 'second:b/b']);
   });
 
-  it('coalesces pending explicit reading input as state rather than an action history', () => {
-    const { state, deliver, sent } = fixture();
-    const interaction = new Interaction();
-    const reports = new InspectionNotifications(() => state, interaction);
+  it.each([true, false])('coalesces explicit input followed by a forced=%s report', (force) => {
+    const { interaction, notifications, deliver, sent } = fixture();
+    notifications.capture().emit('inspect', deliver);
+    sent.length = 0;
     interaction.batch(() => {
-      reports.capture().emit('inspect', deliver, true);
-      reports.capture().emit('inspect', deliver, true);
+      notifications.capture().emit('inspect', deliver, true);
+      notifications.capture().emit('inspect', deliver, force);
     });
     expect(sent).toEqual(['a']);
   });
@@ -188,12 +187,18 @@ describe('inspection notifications', () => {
     expect(sent).toEqual(['c']);
   });
 
-  it('cancels queued deliveries on disposal', () => {
-    const { state, notifications, deliver, sent } = fixture();
+  it('cancels queued deliveries and releases the reader on permanent disposal', () => {
+    const { state, notifications, deliver, sent, read } = fixture();
+    const pending = notifications.capture();
     notifications.capture().emit('inspect', () => {
       state.select.target = target('b');
       notifications.capture().emit('select', deliver);
       notifications.dispose();
+      read.mockImplementation(() => {
+        throw new Error('Disposed reader');
+      });
+      expect(pending.emit('select', deliver)).toBe(false);
+      expect(notifications.capture().emit('inspect', deliver)).toBe(false);
     });
     expect(sent).toEqual([]);
   });
@@ -270,9 +275,7 @@ describe('inspection notifications', () => {
   });
 
   it('revalidates reports after earlier control effects replace their state', () => {
-    const { state, sent, deliver } = fixture();
-    const interaction = new Interaction();
-    const notifications = new InspectionNotifications(() => state, interaction);
+    const { state, interaction, notifications, sent, deliver } = fixture();
     interaction.batch(() => {
       const pending = notifications.capture();
       pending.emit('select', deliver);
@@ -309,16 +312,5 @@ describe('inspection notifications', () => {
     pointer.emit('inspect', deliver, true);
     expect(pointer.emit('select', deliver)).toBe(false);
     expect(sent).toEqual(['a', 'a', 'a']);
-  });
-
-  it('silences pending work and releases the reader on permanent disposal', () => {
-    const { notifications, deliver, read } = fixture();
-    const pending = notifications.capture();
-    notifications.dispose();
-    read.mockImplementation(() => {
-      throw new Error('Disposed reader');
-    });
-    expect(pending.emit('select', deliver)).toBe(false);
-    expect(notifications.capture().emit('inspect', deliver)).toBe(false);
   });
 });

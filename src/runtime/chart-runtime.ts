@@ -1,4 +1,4 @@
-import { ownsInspectionDismissal } from './inspection-input.js';
+import { inspectKey, ownsInspectionDismissal } from './inspection-input.js';
 import { interactionFor, claimInteraction, readingPhase } from '../core/interaction.js';
 import { readingState, releaseReading } from '../core/reading-state.js';
 import { ChartSession } from '../core/session.js';
@@ -454,31 +454,13 @@ export class ChartRuntime<Source = ResultRow>
       return;
     }
     if (this.options.keyboard === false) return;
-    let target: ChartInteraction<Source> | null = null;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const key =
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-            ? 'previous'
-            : 'next';
-      target = this.session.next(key);
-      this.session.inspect(target?.key ?? null, false, true);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      target = this.session.active ?? this.session.next('Home');
-      this.session.inspect(target?.key ?? null, true, true);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.session.clearInspection();
-    } else return;
+    const target = inspectKey(event, this.session, true);
+    if (target === undefined) return;
     if (target) {
-      const navigate = target;
       const intent = readingState(this.session).intent;
       interactionFor(this.session).effect(() => {
         if (!this.signal.aborted && intent === readingState(this.session).intent)
-          this.options.onNavigate?.(navigate);
+          this.options.onNavigate?.(target);
       });
     }
     interactionFor(this.session).effect(

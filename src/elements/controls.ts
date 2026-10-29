@@ -90,7 +90,6 @@ export function renderToolbar(
 
 export class ControlEvents {
   #previous = '';
-  #key = {};
   constructor(private readonly interaction: Interaction) {}
   notify(host: HTMLElement, controls: ScopeChartControl[]) {
     this.interaction.effect(
@@ -106,7 +105,7 @@ export class ControlEvents {
           })
         );
       },
-      this.#key,
+      this,
       controlsPhase
     );
   }

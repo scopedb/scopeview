@@ -8,29 +8,15 @@ const first = { start: 0.1, end: 0.6, scrollOffset: 0 };
 const latest = { start: 0.25, end: 0.75, scrollOffset: 0 };
 
 async function deepHierarchy(page: Page, family: Family) {
-  const nodes = Array.from({ length: 50 }, (_, i) => ({
-    id: `node-${i}`,
-    name: `node-${i}`,
-    ...(i ? { parentId: `node-${i - 1}` } : {})
-  }));
-  const document =
-    family === 'trace'
-      ? {
-          version: 1,
-          kind: 'trace',
-          spans: nodes.map((node) => ({ ...node, startTimeNs: '0', endTimeNs: '10000' }))
-        }
-      : {
-          version: 1,
-          kind: 'profile',
-          unit: 'samples',
-          frames: nodes.map((node) => ({ ...node, selfWeight: '1' }))
-        };
-  await page.evaluate(async (document) => {
+  await page.evaluate(async (family) => {
+    const module = '/tests/browser/fixtures/inspection-matrix.ts';
+    const { hierarchyDocument }: typeof import('./fixtures/inspection-matrix.js') = await import(
+      module
+    );
     const f = window.notificationFixture;
-    f.chart!.document = document;
+    f.chart!.document = hierarchyDocument(family);
     await f.settle();
-  }, document);
+  }, family);
 }
 
 for (const family of ['trace', 'profile'] as const) {
@@ -49,58 +35,73 @@ for (const family of ['trace', 'profile'] as const) {
       }, family);
     });
 
-    for (const pin of [false, true]) {
-      for (const height of [240, 120]) {
-        test(`hidden focusNode remains visible after showing at ${height}px, pin=${pin}`, async ({
-          page
-        }) => {
-          await deepHierarchy(page, family);
-          const result = await page.evaluate(
-            async ({ pin, height }) => {
-              const f = window.notificationFixture;
-              const chart = f.chart as Hierarchy;
-              const snapshot = chart.scene;
-              f.host.style.display = 'none';
-              await f.settle();
-              chart.focusNode('node-20', { pin });
-              const hidden = {
-                viewport: chart.viewport,
-                pin: chart.viewState.pinnedKey,
-                key: f.latest.inspect?.key
-              };
-              chart.style.setProperty('--scope-chart-height', `${height}px`);
-              f.host.style.display = '';
-              await f.settle();
-              await f.settle();
-              const scene = chart.scene!;
-              const clip = scene.clipRect ?? scene.rect!;
-              const key = `${f.entry.family}:node-20`;
-              const mark = scene.marks.find((mark) => mark.kind === 'rect' && mark.key === key);
-              const visible =
-                mark?.kind === 'rect' &&
-                Math.min(mark.y + mark.height, clip.y + clip.height) > Math.max(mark.y, clip.y) &&
-                Math.min(mark.x + mark.width, clip.x + clip.width) > Math.max(mark.x, clip.x);
-              return {
-                hidden,
-                visible,
-                pin: chart.viewState.pinnedKey,
-                key: f.latest.inspect?.key,
-                snapshotPainted: scene !== snapshot
-              };
-            },
-            { pin, height }
-          );
-          const key = `${family}:node-20`;
-          expect(result.hidden).toEqual({
-            viewport: { start: 0, end: 1, scrollOffset: 328 },
-            pin: pin ? key : null,
-            key
+    for (const collapsed of [false, true]) {
+      for (const pin of [false, true]) {
+        for (const height of [240, 120]) {
+          test(`hidden focusNode remains visible at ${height}px, pin=${pin}, collapsed=${collapsed}`, async ({
+            page
+          }) => {
+            await deepHierarchy(page, family);
+            const result = await page.evaluate(
+              async ({ pin, height, collapsed }) => {
+                const f = window.notificationFixture;
+                const chart = f.chart as Hierarchy;
+                if (collapsed) {
+                  chart.collapsed = ['node-0'];
+                  await f.settle();
+                  chart.focusNode('node-0', { pin: true });
+                }
+                const snapshot = chart.scene;
+                f.host.style.display = 'none';
+                await f.settle();
+                chart.focusNode('node-20', { pin });
+                const hidden = {
+                  collapsed: chart.collapsed,
+                  viewport: chart.viewport,
+                  pin: chart.viewState.pinnedKey,
+                  key: f.latest.inspect?.key
+                };
+                chart.style.setProperty('--scope-chart-height', `${height}px`);
+                f.host.style.display = '';
+                await f.settle();
+                await f.settle();
+                const scene = chart.scene!;
+                const clip = scene.clipRect ?? scene.rect!;
+                const key = `${f.entry.family}:node-20`;
+                const target = scene.interactionByKey.get(key);
+                const mark = scene.marks.find((mark) => mark.kind === 'rect' && mark.key === key);
+                const visible =
+                  mark?.kind === 'rect' &&
+                  Math.min(mark.y + mark.height, clip.y + clip.height) > Math.max(mark.y, clip.y) &&
+                  Math.min(mark.x + mark.width, clip.x + clip.width) > Math.max(mark.x, clip.x);
+                return {
+                  hidden,
+                  visible,
+                  anchorVisible:
+                    !!target?.anchor &&
+                    target.anchor.y >= clip.y &&
+                    target.anchor.y <= clip.y + clip.height,
+                  pin: chart.viewState.pinnedKey,
+                  key: f.latest.inspect?.key,
+                  snapshotPainted: scene !== snapshot
+                };
+              },
+              { pin, height, collapsed }
+            );
+            const key = `${family}:node-20`;
+            expect(result.hidden).toEqual({
+              collapsed: [],
+              viewport: { start: 0, end: 1, scrollOffset: 328 },
+              pin: pin ? key : null,
+              key
+            });
+            expect(result.snapshotPainted).toBe(true);
+            expect(result.visible).toBe(true);
+            expect(result.anchorVisible).toBe(true);
+            expect(result.key).toBe(key);
+            expect(result.pin).toBe(pin ? key : null);
           });
-          expect(result.snapshotPainted).toBe(true);
-          expect(result.visible).toBe(true);
-          expect(result.key).toBe(key);
-          expect(result.pin).toBe(pin ? key : null);
-        });
+        }
       }
     }
 
@@ -312,14 +313,12 @@ for (const family of ['trace', 'profile'] as const) {
       });
     });
 
-    for (const throws of [false, true]) {
-      test(`independent viewport observers receive nested changes in order, throws=${throws}`, async ({
-        page
-      }) => {
+    for (const scenario of ['single', 'coalesced', 'throwing'] as const) {
+      test(`nested viewport broadcasts stay ordered: ${scenario}`, async ({ page }) => {
         const errors: string[] = [];
         page.on('pageerror', (error) => errors.push(error.message));
         const result = await page.evaluate(
-          async ({ first, latest, throws }) => {
+          async ({ first, latest, scenario }) => {
             const f = window.notificationFixture;
             const chart = f.chart as Hierarchy;
             f.pin();
@@ -328,11 +327,12 @@ for (const family of ['trace', 'profile'] as const) {
             let changed = false;
             chart.addEventListener('scope-viewport-change', (event) => {
               early.push({ ...(event as CustomEvent<ViewportState>).detail });
-              if (!changed) {
-                changed = true;
-                chart.viewport = latest;
-                if (throws) throw new Error('Viewport observer failure');
-              }
+              if (changed) return;
+              changed = true;
+              if (scenario === 'coalesced')
+                chart.viewport = { start: 0, end: 0.5, scrollOffset: 0 };
+              chart.viewport = latest;
+              if (scenario === 'throwing') throw new Error('Viewport observer failure');
             });
             f.host.addEventListener('scope-viewport-change', (event) =>
               late.push({ ...(event as CustomEvent<ViewportState>).detail })
@@ -341,44 +341,13 @@ for (const family of ['trace', 'profile'] as const) {
             await f.settle();
             return { early, late, viewport: chart.viewport };
           },
-          { first, latest, throws }
+          { first, latest, scenario }
         );
         expect(result.early).toEqual([first, latest]);
         expect(result.late).toEqual(result.early);
         expect(result.viewport).toEqual(latest);
-        expect(errors).toEqual(throws ? ['Viewport observer failure'] : []);
+        expect(errors).toEqual(scenario === 'throwing' ? ['Viewport observer failure'] : []);
       });
     }
-
-    test('nested viewport changes coalesce to the latest window', async ({ page }) => {
-      const result = await page.evaluate(
-        async ({ first, latest }) => {
-          const f = window.notificationFixture;
-          const chart = f.chart as Hierarchy;
-          f.pin();
-          const early: ViewportState[] = [],
-            late: ViewportState[] = [];
-          let changed = false;
-          chart.addEventListener('scope-viewport-change', (event) => {
-            early.push({ ...(event as CustomEvent<ViewportState>).detail });
-            if (!changed) {
-              changed = true;
-              chart.viewport = { start: 0, end: 0.5, scrollOffset: 0 };
-              chart.viewport = latest;
-            }
-          });
-          f.host.addEventListener('scope-viewport-change', (event) =>
-            late.push({ ...(event as CustomEvent<ViewportState>).detail })
-          );
-          chart.viewport = first;
-          await f.settle();
-          return { early, late, viewport: chart.viewport };
-        },
-        { first, latest }
-      );
-      expect(result.early).toEqual([first, latest]);
-      expect(result.late).toEqual(result.early);
-      expect(result.viewport).toEqual(latest);
-    });
   });
 }

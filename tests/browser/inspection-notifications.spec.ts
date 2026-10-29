@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import type { InspectionContext } from '../../src/index.js';
 import { inspectionEntries, inspectionValue } from './fixtures/inspection-matrix.js';
 
 for (const entry of inspectionEntries) {
@@ -11,6 +12,20 @@ for (const entry of inspectionEntries) {
           await import(module);
         window.notificationFixture = await createInspectionFixture(entry);
       }, entry);
+    });
+
+    test('preserves its repeated reading notification policy', async ({ page }) => {
+      const result = await page.evaluate(() => {
+        const f = window.notificationFixture;
+        f.events.length = 0;
+        f.key('Home');
+        f.key('Home');
+        return f.events;
+      });
+      expect(result).toHaveLength(entry.surface === 'component' ? 2 : 1);
+      expect(result.every((event) => event.channel === 'inspect')).toBe(true);
+      expect(result.every((event) => inspectionValue(event.context) === '100')).toBe(true);
+      expect(new Set(result.map((event) => event.context?.snapshotId)).size).toBe(1);
     });
 
     test('pointer and keyboard deliver matching targets, exact snapshots and independent selections', async ({
@@ -104,7 +119,9 @@ for (const entry of inspectionEntries) {
         expect(result.repeated).toEqual([]);
       });
 
-      test(`${channel} callback replacement supersedes the earlier snapshot`, async ({ page }) => {
+      test(`${channel} callback replacement supersedes the earlier snapshot and retains unread context`, async ({
+        page
+      }) => {
         const result = await page.evaluate(async (channel) => {
           const f = window.notificationFixture;
           const module = '/tests/browser/fixtures/inspection-matrix.ts';
@@ -112,21 +129,29 @@ for (const entry of inspectionEntries) {
             await import(module);
           f.pin();
           f.events.length = 0;
+          const previous = f.latest.select!.snapshotId;
+          let retained: InspectionContext | null = null;
           let replacement: Promise<void> | undefined;
           f.hook = (notification) => {
             if (
-              !replacement &&
+              !retained &&
               notification.channel === channel &&
-              inspectionValue(notification.context) === '200'
-            )
+              notification.context &&
+              notification.context.snapshotId !== previous
+            ) {
+              retained = notification.context;
               replacement = f.replace('300');
+            }
           };
           await f.replace('200');
           await f.settle();
           await replacement;
           await f.settle();
+          const latest = { ...f.latest };
+          f.dispose();
           return {
-            latest: f.latest,
+            latest,
+            retained: retained as InspectionContext | null,
             values: f.events.map((event) => ({
               channel: event.channel,
               value: inspectionValue(event.context)
@@ -134,6 +159,9 @@ for (const entry of inspectionEntries) {
           };
         }, channel);
         expect(inspectionValue(result.latest.select)).toBe('300');
+        expect(inspectionValue(result.retained)).toBe('200');
+        expect(result.retained?.key).toBe(result.latest.select?.key);
+        expect(result.retained?.snapshotId).not.toBe(result.latest.select?.snapshotId);
         for (const name of ['inspect', 'select']) {
           const values = result.values
             .filter((event) => event.channel === name)

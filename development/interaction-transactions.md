@@ -60,13 +60,13 @@ Runtime layout revisions and semantic model versions reject stale custom layout 
 
 ## Verification and package boundaries
 
-| Contract                          | Regression coverage                                                                                                                                                                        |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Snapshot versus current getters   | `inspection-contract.spec.ts` checks two independent component listeners and all 17 entries retaining unread context after nested replacement/disposal.                                    |
-| State publication and order       | Coordinator/kernel units cover immediate nested writes, coalescing, channel independence, fixed channel order, exceptions and bounded feedback.                                            |
-| Semantic focus and stale geometry | `interaction-transactions.spec.ts`, `hierarchy-viewport.spec.ts` and 48 seeded independent last-intent reference runs cover hidden/collapsed focus, measurements and superseding commands. |
-| Projection and lifecycle          | Popover/renderer regressions, hidden replacement readiness, ready cancellation, stale custom layouts and runtime reuse cover effects that can reenter or outlive their source.             |
-| API and entry compatibility       | Existing family matrices, public type consumers, exported-member comparison and installed-package acceptance cover signatures and JavaScript facade behavior.                              |
+| Contract                          | Regression coverage                                                                                                                                                                                      |
+| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Snapshot versus current getters   | `inspection-contract.spec.ts` checks independent component listeners; `inspection-notifications.spec.ts` checks unread context after nested replacement/disposal in both channels across all 17 entries. |
+| State publication and order       | Coordinator/kernel units cover immediate nested writes, coalescing, channel independence, fixed channel order, exceptions and bounded feedback.                                                          |
+| Semantic focus and stale geometry | `interaction-transactions.spec.ts`, `hierarchy-viewport.spec.ts` and 48 seeded independent last-intent reference runs cover hidden/collapsed focus, measurements and superseding commands.               |
+| Projection and lifecycle          | Popover/renderer regressions, hidden replacement readiness, ready cancellation, stale custom layouts and runtime reuse cover effects that can reenter or outlive their source.                           |
+| API and entry compatibility       | Existing family matrices, public type consumers, exported-member comparison and installed-package acceptance cover signatures and JavaScript facade behavior.                                            |
 
 The kernel, sessions and frame registry remain DOM-free. Shared reading DOM stays in `src/ui/`; headless views do not import component shells. Fixed metric entries omit aggregate switching, scalar stays HTML-only, registration is explicit and all existing gzip limits remain gates. Painter tokens, source colors, geometry and reading appearance are unchanged.
 

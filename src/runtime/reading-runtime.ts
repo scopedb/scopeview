@@ -4,6 +4,7 @@ import { ReadingSession } from '../core/reading-session.js';
 import type { ChartInteraction, ChartScene } from '../core/scene.js';
 import { RuntimeLifecycle } from './lifecycle.js';
 import type { ReadingOptions } from './types.js';
+import { inspectKey } from './inspection-input.js';
 
 /** Report lifecycle and transient reading. Range, links and viewport controllers stay optional. */
 export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
@@ -66,31 +67,13 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
     )
       return;
     const interaction = interactionFor(this.session);
-    let target: ChartInteraction<Source> | null = null;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const direction =
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-            ? 'previous'
-            : 'next';
-      target = this.session.next(direction);
-      this.session.inspect(target?.key ?? null, false, true);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      target = this.session.active ?? this.session.next('Home');
-      this.session.inspect(target?.key ?? null, this.selectable, true);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.session.clearInspection();
-    } else return;
+    const target = inspectKey(event, this.session, this.selectable);
+    if (target === undefined) return;
     if (target) {
-      const navigate = target;
       const intent = readingState(this.session).intent;
       interaction.effect(() => {
         if (!this.signal.aborted && intent === readingState(this.session).intent)
-          this.options.onNavigate?.(navigate);
+          this.options.onNavigate?.(target);
       });
     }
     interaction.effect(

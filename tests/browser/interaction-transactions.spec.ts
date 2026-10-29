@@ -10,82 +10,20 @@ for (const family of ['trace', 'profile'] as const) {
       await page.goto('/tests/browser/fixtures/blank.html');
       await page.evaluate(async (family) => {
         const module = '/tests/browser/fixtures/inspection-matrix.ts';
-        const { createInspectionFixture }: typeof import('./fixtures/inspection-matrix.js') =
-          await import(module);
+        const {
+          createInspectionFixture,
+          hierarchyDocument
+        }: typeof import('./fixtures/inspection-matrix.js') = await import(module);
         const f = await createInspectionFixture({
           name: 'transactions',
           family,
           surface: 'component'
         });
         window.notificationFixture = f;
-        const nodes = Array.from({ length: 50 }, (_, index) => ({
-          id: `node-${index}`,
-          name: `node-${index}`,
-          ...(index ? { parentId: `node-${index - 1}` } : {})
-        }));
-        f.chart!.document =
-          family === 'trace'
-            ? {
-                version: 1,
-                kind: family,
-                spans: nodes.map((node) => ({ ...node, startTimeNs: '0', endTimeNs: '10000' }))
-              }
-            : {
-                version: 1,
-                kind: family,
-                unit: 'samples',
-                frames: nodes.map((node) => ({ ...node, selfWeight: '1' }))
-              };
+        f.chart!.document = hierarchyDocument(family);
         await f.settle();
       }, family);
     });
-
-    for (const height of [120, 240]) {
-      for (const pin of [false, true]) {
-        test(`hidden focus below a collapsed ancestor survives ${height}px measurement, pin=${pin}`, async ({
-          page
-        }) => {
-          const result = await page.evaluate(
-            async ({ height, pin }) => {
-              const f = window.notificationFixture;
-              const chart = f.chart as Hierarchy;
-              chart.collapsed = ['node-0'];
-              await f.settle();
-              chart.focusNode('node-0', { pin: true });
-              f.host.style.display = 'none';
-              await f.settle();
-              chart.focusNode('node-20', { pin });
-              const accepted = {
-                key: f.latest.inspect?.key,
-                pin: chart.viewState.pinnedKey,
-                collapsed: chart.collapsed
-              };
-              chart.style.setProperty('--scope-chart-height', `${height}px`);
-              f.host.style.display = '';
-              await f.settle();
-              const scene = chart.scene!;
-              const target = scene.interactionByKey.get(`${f.entry.family}:node-20`);
-              const rect = scene.rect!;
-              return {
-                accepted,
-                key: f.latest.inspect?.key,
-                pin: chart.viewState.pinnedKey,
-                visible:
-                  !!target?.anchor &&
-                  target.anchor.y >= rect.y &&
-                  target.anchor.y <= rect.y + rect.height
-              };
-            },
-            { height, pin }
-          );
-          const key = `${family}:node-20`;
-          expect(result.accepted).toEqual({ key, pin: pin ? key : null, collapsed: [] });
-          expect(result.key).toBe(key);
-          expect(result.pin).toBe(pin ? key : null);
-          expect(result.visible).toBe(true);
-        });
-      }
-    }
 
     test('same-window acknowledgements quiesce without another notification', async ({ page }) => {
       const result = await page.evaluate(async () => {

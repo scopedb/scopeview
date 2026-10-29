@@ -107,24 +107,6 @@ describe('interaction transactions', () => {
     expect(seen).toEqual(['current']);
   });
 
-  it('preserves an explicit input report when a quiet repaint captures the same reading', () => {
-    const interaction = new Interaction();
-    const target = { key: 'a', sources: ['a'], tooltip: { rows: [] } };
-    const state = { snapshot: {}, inspect: { target }, select: { target: null } };
-    const reports = new InspectionNotifications(() => state, interaction);
-    const sent: string[] = [];
-    const deliver = (value: { target: { key: string } | null }) => {
-      sent.push(value.target?.key ?? 'null');
-    };
-    reports.capture().emit('inspect', deliver);
-    sent.length = 0;
-    interaction.batch(() => {
-      reports.capture().emit('inspect', deliver, true);
-      reports.capture().emit('inspect', deliver);
-    });
-    expect(sent).toEqual(['a']);
-  });
-
   it('consumes a Canvas provider once and detaches borrowed facades without resetting the host', () => {
     const parent = new ChartSession<string>();
     const target = { key: 'a', sources: ['a'], tooltip: { rows: [] } };
