@@ -25,7 +25,7 @@ await build({
     lib: { entry: entries, formats: ['es'], fileName: (_, name) => `${name}.js` }
   }
 });
-// Offline HTML and classic scripts consume the built public entry, just like installed hosts.
+// Offline HTML and classic scripts use the same all-family browser implementation.
 await build({
   configFile: false,
   build: {
@@ -34,7 +34,7 @@ await build({
     cssTarget,
     minify: true,
     lib: {
-      entry: resolve('dist/headless.js'),
+      entry: entries.headless,
       name: 'ScopeView',
       formats: ['iife'],
       fileName: () => 'scopeview.js'
