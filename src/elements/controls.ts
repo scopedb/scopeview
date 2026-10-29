@@ -1,3 +1,4 @@
+import type { Interaction } from '../core/interaction.js';
 import type { ComponentOptions, ScopeChartAction } from '../families/component-options.js';
 export type { ScopeChartAction } from '../families/component-options.js';
 
@@ -89,16 +90,24 @@ export function renderToolbar(
 
 export class ControlEvents {
   #previous = '';
+  #key = {};
+  constructor(private readonly interaction: Interaction) {}
   notify(host: HTMLElement, controls: ScopeChartControl[]) {
-    const current = JSON.stringify(controls);
-    if (current === this.#previous) return;
-    this.#previous = current;
-    host.dispatchEvent(
-      new CustomEvent<ScopeControlsChangeDetail>('scope-controls-change', {
-        detail: { controls },
-        bubbles: true,
-        composed: true
-      })
+    this.interaction.effect(
+      () => {
+        const current = JSON.stringify(controls);
+        if (current === this.#previous) return;
+        this.#previous = current;
+        host.dispatchEvent(
+          new CustomEvent<ScopeControlsChangeDetail>('scope-controls-change', {
+            detail: { controls },
+            bubbles: true,
+            composed: true
+          })
+        );
+      },
+      this.#key,
+      1
     );
   }
 }

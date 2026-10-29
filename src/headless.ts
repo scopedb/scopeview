@@ -23,7 +23,6 @@ export function createVisualization(
 ): ChartView {
   const kind =
     document && typeof document === 'object' && 'kind' in document ? document.kind : undefined;
-  if (kind === 'trace') return createTrace(host, document, options);
-  if (kind === 'profile') return createFlame(host, document, options);
-  return createChart(host, document, options);
+  const create = kind === 'trace' ? createTrace : kind === 'profile' ? createFlame : createChart;
+  return create(host, document, options);
 }

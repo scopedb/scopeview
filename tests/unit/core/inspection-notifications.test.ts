@@ -1,3 +1,4 @@
+import { Interaction } from '../../../src/core/interaction.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   InspectionNotifications,
@@ -19,7 +20,7 @@ function fixture() {
     select: { target: a }
   };
   const read = vi.fn(() => state);
-  const notifications = new InspectionNotifications(read);
+  const notifications = new InspectionNotifications(read, new Interaction());
   const sent: string[] = [];
   const deliver = (value: { target: ChartInteraction<string> | null }) =>
     sent.push(value.target?.key ?? 'null');
@@ -68,7 +69,8 @@ describe('inspection notifications', () => {
       cleared.emit('select', deliver);
     });
     expect(pending.emit('select', deliver)).toBe(false);
-    expect(pending.current()).toBe(false);
+    expect(pending.current('inspect')).toBe(false);
+    expect(pending.current('select')).toBe(false);
     expect(sent).toEqual(['a', 'null', 'null']);
   });
 
@@ -164,7 +166,7 @@ describe('inspection notifications', () => {
           });
           cleared.emit(other, deliver);
         },
-        { force: true }
+        true
       )
     ).toThrow(error);
     expect(sent).toEqual(['null']);
@@ -197,17 +199,22 @@ describe('inspection notifications', () => {
     expect(sent).toEqual(['null']);
   });
 
-  it('revalidates after control callbacks and does not commit superseded reports', () => {
-    const { state, notifications, deliver, sent } = fixture();
-    const pending = notifications.capture();
-    expect(
-      pending.emit('select', deliver, {
-        before: () => {
+  it('revalidates reports after earlier control effects replace their state', () => {
+    const { state, sent, deliver } = fixture();
+    const interaction = new Interaction();
+    const notifications = new InspectionNotifications(() => state, interaction);
+    interaction.batch(() => {
+      const pending = notifications.capture();
+      pending.emit('select', deliver);
+      interaction.effect(
+        () => {
           state.select.target = null;
           notifications.capture().emit('select', deliver);
-        }
-      })
-    ).toBe(false);
+        },
+        {},
+        1
+      );
+    });
     expect(sent).toEqual([]);
     expect(notifications.capture().emit('select', deliver)).toBe(false);
   });
@@ -229,7 +236,7 @@ describe('inspection notifications', () => {
     initial.emit('inspect', deliver);
     initial.emit('select', deliver);
     const pointer = notifications.capture();
-    pointer.emit('inspect', deliver, { force: true });
+    pointer.emit('inspect', deliver, true);
     expect(pointer.emit('select', deliver)).toBe(false);
     expect(sent).toEqual(['a', 'a', 'a']);
   });

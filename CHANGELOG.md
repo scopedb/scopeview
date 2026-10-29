@@ -6,9 +6,9 @@ All significant changes to ScopeView are documented in this file.
 
 ### Bug fixes
 
-- `scope-trace` and `scope-flame` honor newer keyboard input and `focusNode()` calls over pending state restoration, and keep focused nodes visible when initialized hidden charts are shown or resized.
-- Headless `onInspect` and `onSelect` callbacks continue delivering valid queued clears after another callback throws, so hosts do not retain dismissed readings or selections.
-- `scope-viewport-change` observers receive current windows in consistent order when render, control or event callbacks move the viewport, restore state or replace documents.
+- `scope-trace` and `scope-flame` resolve `focusNode()` below collapsed ancestors while initialized charts are hidden, retain pin behavior when measurement resumes, and honor newer nested focus, keyboard, dismissal, viewport and restored-state commands.
+- Viewport and collapse observers can acknowledge the current value without recursive events. Changing-value callback cycles yield to the browser, and nested viewport broadcasts reach listeners in consistent order.
+- Inspection callbacks retain exact source snapshots across document replacement and continue valid queued clears after an observer throws. Reentrant layout and cleanup callbacks cannot overwrite newer data, and removed frames cannot emit a stale ready event.
 
 ## v0.1.1 (2026-10-29)
 

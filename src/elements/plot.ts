@@ -1,3 +1,4 @@
+import { captureScene } from '../core/scene-snapshot.js';
 import type { CompiledChart } from '../families/metrics/document.js';
 import { layoutChart } from '../families/metrics/layout.js';
 import type { ChartRenderer } from './plot-contract.js';
@@ -24,7 +25,8 @@ export class Plot extends ChartRuntime implements ChartRenderer {
         ? 'paint'
         : 'layout';
     this.paint(
-      (width, height, measure) => layoutChart(compiled, hidden, width, height, measure, axes),
+      (width, height, measure) =>
+        captureScene(layoutChart(compiled, hidden, width, height, measure, axes), compiled),
       reason
     );
     this.compiled = compiled;

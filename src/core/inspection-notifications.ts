@@ -1,3 +1,4 @@
+import type { InteractionChannel, Interaction } from './interaction.js';
 import type { ChartInteraction } from './scene.js';
 
 export type InspectionChannel = 'inspect' | 'select';
@@ -14,143 +15,102 @@ export interface InspectionState<Source, Snapshot extends object = object> {
   select: InspectionReading<Source>;
 }
 
-interface Identity {
+interface ReportedReading<Source> {
   snapshot: object | null;
-  key: string | null;
+  target: ChartInteraction<Source> | null;
   series: string | null;
   pinned: boolean;
 }
-
-const empty = (): Identity => ({ snapshot: null, key: null, series: null, pinned: false });
+const empty: ReportedReading<never> = { snapshot: null, target: null, series: null, pinned: false };
 const channels = ['inspect', 'select'] as const;
 
-function reading<Source>(value: InspectionReading<Source>, selected = false) {
-  return {
-    target: value.target,
-    series: value.target ? (value.series ?? null) : null,
-    pinned: !!value.target && (selected || value.pinned === true)
-  };
-}
-
-function identity<Source>(snapshot: object | null, value: InspectionReading<Source>): Identity {
+function reading<Source>(
+  value: InspectionReading<Source>,
+  snapshot: object | null,
+  selected = false
+): ReportedReading<Source> {
   return value.target
     ? {
         snapshot,
-        key: value.target.key,
+        target: value.target,
         series: value.series ?? null,
-        pinned: value.pinned === true
+        pinned: selected || value.pinned === true
       }
-    : empty();
+    : empty;
 }
 
-function same(a: Identity, b: Identity) {
+function same<Source>(a: ReportedReading<Source>, b: ReportedReading<Source>) {
   return (
-    a.snapshot === b.snapshot && a.key === b.key && a.series === b.series && a.pinned === b.pinned
+    a.snapshot === b.snapshot &&
+    a.target?.key === b.target?.key &&
+    a.series === b.series &&
+    a.pinned === b.pinned
   );
 }
 
 /** DOM-free delivery protocol shared by headless callbacks and component events. */
 export class InspectionNotifications<Source, Snapshot extends object = object> {
-  #reported = { inspect: empty(), select: empty() };
+  #reports: Record<InspectionChannel, InteractionChannel<ReportedReading<Source>>>;
   #versions = { inspect: 0, select: 0 };
-  #closed = false;
-  #delivering = false;
-  #pending: (() => boolean)[] = [];
+  #read: (() => InspectionState<Source, Snapshot>) | null;
+  readonly #interaction: Interaction;
 
-  constructor(private readonly read: () => InspectionState<Source, Snapshot>) {}
+  constructor(read: () => InspectionState<Source, Snapshot>, interaction: Interaction) {
+    this.#read = read;
+    this.#interaction = interaction;
+    this.#reports = {
+      inspect: interaction.channel(empty, same),
+      select: interaction.channel(empty, same)
+    };
+  }
 
   /** Cancel captured work without forgetting the state already delivered to the host. */
   invalidate(channel?: InspectionChannel) {
     for (const name of channel ? [channel] : channels) this.#versions[name]++;
   }
 
-  /** Finish the current broadcast before notifying observers of a nested state change. */
-  #deliver(send: () => boolean): boolean {
-    if (this.#delivering) {
-      this.#pending.push(send);
-      return true;
-    }
-    this.#delivering = true;
-    const errors: unknown[] = [];
-    const attempt = (callback: () => boolean) => {
-      try {
-        return callback();
-      } catch (error) {
-        errors.push(error);
-        return false;
-      }
-    };
-    try {
-      const sent = attempt(send);
-      for (const pending of this.#pending) attempt(pending);
-      // Finish valid nested reports before propagating the first host failure.
-      if (errors.length) throw errors[0];
-      return sent;
-    } finally {
-      this.#pending.length = 0;
-      this.#delivering = false;
-    }
-  }
-
   capture() {
-    const state: InspectionState<Source, Snapshot> = this.#closed
-      ? { snapshot: null, inspect: { target: null }, select: { target: null } }
-      : this.read();
-    const values = {
-      inspect: reading(state.inspect),
-      select: reading(state.select, true)
+    const state = this.#read?.() ?? {
+      snapshot: null,
+      inspect: empty,
+      select: empty
     };
-    const identities = {
-      inspect: identity(state.snapshot, values.inspect),
-      select: identity(state.snapshot, values.select)
+    const values = {
+      snapshot: state.snapshot,
+      inspect: reading(state.inspect, state.snapshot),
+      select: reading(state.select, state.snapshot, true)
     };
     const versions = { ...this.#versions };
-    const reported = { ...this.#reported };
-    const current = (channel?: InspectionChannel): boolean => {
-      if (!channel) return channels.every((name) => current(name));
-      if (
-        this.#closed ||
-        versions[channel] !== this.#versions[channel] ||
-        reported[channel] !== this.#reported[channel]
-      )
-        return false;
-      const live = this.read();
-      return same(
-        identities[channel],
-        identity(live.snapshot, reading(live[channel], channel === 'select'))
-      );
+    const current = (channel: InspectionChannel): boolean => {
+      if (!this.#read || versions[channel] !== this.#versions[channel]) return false;
+      const live = this.#read();
+      return same(values[channel], reading(live[channel], live.snapshot, channel === 'select'));
     };
     return {
-      state: { snapshot: state.snapshot, ...values },
+      state: values,
       current,
       emit: (
         channel: InspectionChannel,
         deliver: (value: (typeof values)[InspectionChannel], snapshot: Snapshot | null) => void,
-        options: { force?: boolean; before?(): void } = {}
+        force = false
       ): boolean => {
-        const ready = () =>
-          current(channel) &&
-          (options.force || !same(identities[channel], this.#reported[channel]));
-        if (!ready()) return false;
-        return this.#deliver(() => {
-          if (!ready()) return false;
-          options.before?.();
-          if (!current(channel)) return false;
-          // Commit before user code; queued reports are revalidated when their turn arrives.
-          const report = { ...identities[channel] };
-          this.#reported[channel] = reported[channel] = report;
-          deliver(values[channel], state.snapshot);
-          return true;
-        });
+        return this.#interaction.report(
+          this.#reports[channel],
+          values[channel],
+          () => current(channel),
+          (value) => {
+            versions[channel] = ++this.#versions[channel];
+            deliver(value, values.snapshot);
+          },
+          force
+        );
       }
     };
   }
 
   /** Permanent headless disposal is silent and cancels every pending callback. */
   dispose() {
-    this.#closed = true;
-    this.invalidate();
-    this.#pending.length = 0;
-    this.#reported = { inspect: empty(), select: empty() };
+    this.#read = null;
+    for (const channel of channels) this.#reports[channel].value = empty;
   }
 }

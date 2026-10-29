@@ -3,26 +3,24 @@ import type { CompiledChart } from '../families/metrics/document.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
 import type { ResultRow } from '../data/result.js';
 import type { MetricInspectionContext } from '../core/inspection-context.js';
+import { createMetricPlot } from './metric-plot.js';
 import { scalarView, type ScalarValue } from './scalar.js';
-import { View, type ViewOptions, type ChartView } from './view.js';
+import type { ViewOptions, ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
-import { metricInspectionContext } from '../families/metrics/inspection-context.js';
-import tokens from '../theme/metric-tokens.css?inline';
 
-/** Aggregate documents use HTML; plot documents instantiate the report Canvas runtime. */
+/** The general entry alone owns transitions between HTML aggregates and plotted metrics. */
 export function createMetric(
   host: HTMLElement,
   compiled: CompiledChart,
   layout: MetricLayout,
   compile: (document: unknown) => CompiledChart,
-  options: ViewOptions<ResultRow, MetricInspectionContext> = {}
+  options: ViewOptions<ResultRow, MetricInspectionContext>
 ) {
   options = parseViewOptions(options);
-  let inner: ChartView;
-  let disposed = false;
   let revision = 0;
-  let theme = options.theme ?? 'light';
-  let rendered = compiled;
+  let disposed = false;
+  let inner: ChartView;
+  let plot: ReturnType<typeof createMetricPlot> | null = null;
   const scalarValues = (value: CompiledChart): ScalarValue[] => {
     const mapping = value.config.mapping;
     if (mapping.kind !== 'aggregate' || !value.document.data.rows.length) return [];
@@ -35,39 +33,28 @@ export function createMetric(
       };
     });
   };
-  const mount = () => {
-    if (compiled.config.mapping.kind === 'aggregate')
-      return scalarView(host, scalarValues(compiled), { theme });
-    const view = new View(
-      host,
-      { ...options, theme },
-      tokens,
-      (width, height, measure, hidden) => {
-        rendered = compiled;
-        return layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal');
-      },
-      {
-        snapshot: () => rendered,
-        contextFor: (target, series) => metricInspectionContext(rendered, target, series)
-      }
-    );
-    view.status(compiled.document.data.rows.length ? null : 'No data');
-    view.changed();
-    return view;
+  const mount = (
+    next: CompiledChart,
+    nextLayout: MetricLayout,
+    theme = options.theme ?? 'light'
+  ): ChartView => {
+    plot =
+      next.config.mapping.kind === 'aggregate'
+        ? null
+        : createMetricPlot(host, next, nextLayout, { ...options, theme });
+    return plot?.view ?? scalarView(host, scalarValues(next), { theme });
   };
-  inner = mount();
+  inner = mount(compiled, layout);
   const handle: ChartView = {
     update(document) {
       if (disposed) throw new Error('This chart has been disposed.');
-      const next = compile(document);
-      replace(next);
+      replace(compile(document));
     },
     get theme() {
-      return theme;
+      return inner.theme;
     },
     set theme(value) {
       inner.theme = value;
-      theme = inner.theme;
     },
     refresh: () => inner.refresh(),
     dispose() {
@@ -78,31 +65,20 @@ export function createMetric(
     }
   };
   function bind() {
-    const binding = interactionHosts.get(inner);
-    if (binding) interactionHosts.set(handle, binding);
-    else interactionHosts.delete(handle);
+    interactionHosts.set(handle, interactionHosts.get(inner));
   }
-  function replace(next: CompiledChart, nextLayout: MetricLayout = layout) {
+  function replace(next: CompiledChart, nextLayout?: MetricLayout) {
     if (disposed) throw new Error('This chart has been disposed.');
     const current = ++revision;
-    layout = nextLayout;
-    const aggregate = next.config.mapping.kind === 'aggregate';
-    if (aggregate !== (compiled.config.mapping.kind === 'aggregate')) {
-      if (inner instanceof View) inner.clearInspection();
+    if ((next.config.mapping.kind !== 'aggregate') !== !!plot) {
+      plot?.view.clearInspection();
       if (disposed || current !== revision) return;
+      const theme = inner.theme;
       inner.dispose();
-      compiled = next;
-      inner = mount();
+      inner = mount(next, nextLayout ?? layout, theme);
       bind();
-    } else {
-      compiled = next;
-      if (inner instanceof View) {
-        const view = inner;
-        view.status(compiled.document.data.rows.length ? null : 'No data');
-        if (disposed || current !== revision) return;
-        view.changed();
-      } else inner.update(scalarValues(compiled));
-    }
+    } else if (plot) plot.replace(next, nextLayout);
+    else inner.update(scalarValues(next));
   }
   bind();
   return { view: handle, replace };
