@@ -4,6 +4,7 @@ import { ref } from 'vue';
 import ChartDemo from './ChartDemo.vue';
 import HeadlessDemo from './HeadlessDemo.vue';
 import { demoRouteVersion } from './demo-route.js';
+import './custom.css';
 
 export default {
   extends: DefaultTheme,

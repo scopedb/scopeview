@@ -148,6 +148,7 @@
     "docs:dev": "vitepress dev docs --host 127.0.0.1",
     "docs:build": "vitepress build docs",
     "docs:preview": "vitepress preview docs --host 127.0.0.1",
+    "docs:deploy": "wrangler deploy",
     "test:node": "node --test tests/node/*.test.mjs",
     "test:package": "node tests/package/run.mjs",
     "build:cli": "pnpm build && node scripts/distribution.mjs",
@@ -165,7 +166,8 @@
     "vitepress": "1.6.4",
     "vitest": "4.1.10",
     "vue": "3.5.43",
-    "vue-tsc": "3.3.12"
+    "vue-tsc": "3.3.12",
+    "wrangler": "4.154.0"
   },
   "engines": {
     "node": ">=24"

@@ -41,12 +41,25 @@ export default defineConfig({
     siteTitle: 'ScopeView',
     nav,
     socialLinks: [{ icon: 'github', link: repository }],
-    search: { provider: 'local' },
+    search: {
+      provider: 'local',
+      options: {
+        translations: {
+          button: {
+            buttonText: 'Search docs...',
+            buttonAriaLabel: 'Search docs'
+          }
+        }
+      }
+    },
     outline: { level: [2, 3], label: 'On this page' },
     sidebar,
     docFooter: { prev: 'Previous page', next: 'Next page' },
     editLink: { pattern: `${repository}/edit/main/docs/:path`, text: 'Edit this page on GitHub' },
-    footer: { message: 'Apache-2.0 · ScopeView' }
+    footer: {
+      message: `Released under the <a href="${repository}/blob/main/LICENSE">Apache-2.0 License</a>.`,
+      copyright: `© 2024–${new Date().getFullYear()} <a href="https://www.scopedb.io">ScopeDB</a>. All rights reserved.`
+    }
   },
   markdown: {
     config(md) {
