@@ -59,6 +59,8 @@ Family-owned inspection context projectors expose exact source values, field rol
 
 The DOM-free `InspectionNotifications` coordinator in `core/inspection-notifications.ts` owns notification identity (`snapshot`, `key`, `series`, `pinned`), deduplication and reentrancy across all families and browser entries. It retains the last delivered state across loading and document replacements so reconciled selections report updated snapshots and cleared, failed or disconnected states clear once. Delivery commits before invoking host callbacks, and nested state changes wait for the current broadcast to finish before revalidating and draining in order.
 
+A throwing callback does not discard valid queued reports, including work added during draining; the first thrown value propagates after the queue drains. Hierarchy components cancel an older pending pin restoration before navigation can paint or Escape can notify observers; a new restoration requested by a callback remains authoritative. Escape also cancels restoration while loading has released the runtime.
+
 Views own their child DOM; components release runtime resources on disconnect. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
 
 See [custom rendering](../docs/canvas-infra.md) for low-level consumers and [development](../CONTRIBUTING.md) for tests, scripts and packaging.

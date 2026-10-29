@@ -86,6 +86,8 @@ Metric timestamps and numeric cells retain the supplied strings, including sub-m
 
 `snapshotId` remains stable across inspection, selection, resizing, themes and visibility changes for one compiled document, and changes when data is replaced. A compatible persistent selection reconciles to the replacement and reports the new `snapshotId` and values; clearing or dismissing a reading or selection reports `null` for both arguments. The [headless example](../examples/headless.html) displays the callback's JSON beside each family.
 
+If a callback throws, valid queued notifications still finish before the first thrown value propagates. Disposing the view cancels pending callbacks.
+
 ## Load layouts on demand
 
 `createReport` returns `Promise<ReportView>`. Its `update` method also returns a Promise:

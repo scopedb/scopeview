@@ -509,13 +509,30 @@ export class HierarchyElement<
     this.#root.addEventListener(
       'keydown',
       (event) => {
-        if ((event as KeyboardEvent).key === 'Escape' && this.#runtime?.session.active) {
+        const key = event as KeyboardEvent;
+        if (
+          key.key !== 'Escape' ||
+          (!this.#runtime?.session.active && this.#pendingPin === undefined)
+        )
+          return;
+        const canvas = this.#el('.canvas');
+        if (
+          this.#runtime &&
+          this.scene?.interactive !== false &&
+          !key.metaKey &&
+          !key.ctrlKey &&
+          !key.altKey &&
+          event.composedPath().includes(canvas)
+        ) {
+          // Cancel restoration before the runtime reports Escape; its callbacks may restore again.
+          this.#pendingPin = undefined;
+        } else {
           event.preventDefault();
           this.#clearInspection();
-          this.#el('.canvas').focus({ preventScroll: true });
+          canvas.focus({ preventScroll: true });
         }
       },
-      { signal }
+      { capture: true, signal }
     );
     const outside = (event: Event) => {
       if (this.#ui.dismissOnOutside !== false && !event.composedPath().includes(this))
@@ -647,7 +664,11 @@ export class HierarchyElement<
           this.#renderedCompiled = this.#compiled;
           return scene;
         },
-        onNavigate: (target) => this.#reveal(target),
+        onNavigate: (target) => {
+          // A committed keyboard action supersedes restoration before reveal can paint.
+          this.#pendingPin = undefined;
+          this.#reveal(target);
+        },
         inputConsumed: () => this.#input?.consumed ?? false,
         onInspect: (_value, position) => this.#showInspection(position, true),
         onError: (error) => {

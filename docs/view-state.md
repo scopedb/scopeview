@@ -38,6 +38,8 @@ export function restoreView(chart: ScopeChartElement, saved: string) {
 
 Use `updateDocument(input, { preserveViewState: true })` for a new snapshot of the same logical source. Compatible pins, visibility, collapsed nodes and viewport survive. Missing sources are cleared; a pin is not moved to the next row. A pin below a collapsed ancestor is also cleared. Assigning `document` directly resets state.
 
+In trace/profile components, accepted keyboard navigation or Escape supersedes an older pending pin restoration. This applies to both preserved document state and an assigned `viewState`; Escape also cancels a pin retained during loading. A new restoration requested by a notification callback takes precedence over the earlier keyboard action.
+
 Identity continuity is the caller's responsibility. A reused span ID in another trace is not the same source. Metric row-index keys are local to their snapshot, so row reordering may make preservation inappropriate. Keep source identity alongside the saved view.
 
 ## Share semantic state

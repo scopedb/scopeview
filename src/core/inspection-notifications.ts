@@ -71,15 +71,24 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
       return true;
     }
     this.#delivering = true;
-    try {
-      return send();
-    } finally {
+    const errors: unknown[] = [];
+    const attempt = (callback: () => boolean) => {
       try {
-        for (const pending of this.#pending) pending();
-      } finally {
-        this.#pending.length = 0;
-        this.#delivering = false;
+        return callback();
+      } catch (error) {
+        errors.push(error);
+        return false;
       }
+    };
+    try {
+      const sent = attempt(send);
+      for (const pending of this.#pending) attempt(pending);
+      // Finish valid nested reports before propagating the first host failure.
+      if (errors.length) throw errors[0];
+      return sent;
+    } finally {
+      this.#pending.length = 0;
+      this.#delivering = false;
     }
   }
 

@@ -141,6 +141,62 @@ describe('inspection notifications', () => {
     expect(sent).toEqual(['null', 'b']);
   });
 
+  it.each([
+    'inspect',
+    'select'
+  ] as const)('drains the other channel when a queued %s callback throws', (channel) => {
+    const { state, notifications, deliver, sent } = fixture();
+    const other = channel === 'inspect' ? 'select' : 'inspect';
+    const initial = notifications.capture();
+    initial.emit('inspect', deliver);
+    initial.emit('select', deliver);
+    sent.length = 0;
+    const error = new Error('Queued failure');
+    expect(() =>
+      notifications.capture().emit(
+        'inspect',
+        () => {
+          state.inspect.target = state.select.target = null;
+          notifications.invalidate();
+          const cleared = notifications.capture();
+          cleared.emit(channel, () => {
+            throw error;
+          });
+          cleared.emit(other, deliver);
+        },
+        { force: true }
+      )
+    ).toThrow(error);
+    expect(sent).toEqual(['null']);
+    expect(notifications.capture().emit(channel, deliver)).toBe(false);
+    expect(notifications.capture().emit(other, deliver)).toBe(false);
+    state[other].target = target('b');
+    notifications.capture().emit(other, deliver);
+    expect(sent).toEqual(['null', 'b']);
+  });
+
+  it.each([
+    new Error('Outer failure'),
+    undefined
+  ])('preserves the first thrown value (%s) and drains work added by a failing queued callback', (error) => {
+    const { state, notifications, deliver, sent } = fixture();
+    const caught = vi.fn();
+    try {
+      notifications.capture().emit('select', () => {
+        notifications.capture().emit('inspect', () => {
+          state.select.target = null;
+          notifications.capture().emit('select', deliver);
+          throw new Error('Queued failure');
+        });
+        throw error;
+      });
+    } catch (value) {
+      caught(value);
+    }
+    expect(caught).toHaveBeenCalledExactlyOnceWith(error);
+    expect(sent).toEqual(['null']);
+  });
+
   it('revalidates after control callbacks and does not commit superseded reports', () => {
     const { state, notifications, deliver, sent } = fixture();
     const pending = notifications.capture();

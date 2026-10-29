@@ -337,6 +337,202 @@ for (const entry of inspectionEntries) {
       });
     }
 
+    if (entry.surface !== 'component') {
+      test('a failing queued selection callback does not discard the inspection clear', async ({
+        page
+      }) => {
+        const errors: string[] = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          f.pin();
+          f.key('End');
+          f.events.length = 0;
+          let dismissed = false;
+          f.hook = (notification) => {
+            if (notification.channel !== 'select') return;
+            if (!notification.context) throw new Error('Queued selection failure');
+            dismissed = true;
+            f.dismiss();
+          };
+          f.key('Enter');
+          await f.settle();
+          const events = f.events.splice(0);
+          f.repaint();
+          await f.settle();
+          return {
+            dismissed,
+            events,
+            repeated: f.events,
+            latest: f.latest,
+            hidden: f.tooltipHidden
+          };
+        });
+        expect(errors).toEqual(['Queued selection failure']);
+        expect(result.dismissed).toBe(true);
+        expect(result.events.map((event) => [event.channel, event.key])).toEqual([
+          ['select', result.events[0].key],
+          ['select', null],
+          ['inspect', null]
+        ]);
+        expect(result.latest).toEqual({ inspect: null, select: null });
+        expect(result.hidden).toBe(true);
+        expect(result.repeated).toEqual([]);
+      });
+    }
+
+    if (entry.surface === 'component' && entry.family !== 'metric') {
+      for (const restore of ['document', 'view-state', 'loading'] as const) {
+        test(`Escape cancels a pending ${restore} pin restoration`, async ({ page }) => {
+          const result = await page.evaluate(async (restore) => {
+            const f = window.notificationFixture;
+            f.pin();
+            const state = f.chart!.viewState;
+            f.events.length = 0;
+            if (restore === 'document') await f.replace('200');
+            else if (restore === 'view-state') f.chart!.viewState = state;
+            else {
+              f.chart!.loading = true;
+              await f.settle();
+            }
+            f.key('Escape');
+            const immediate = { ...f.latest, pin: f.chart!.viewState.pinnedKey };
+            f.chart!.loading = false;
+            await f.settle();
+            return {
+              immediate,
+              latest: f.latest,
+              pin: f.chart!.viewState.pinnedKey,
+              events: f.events
+            };
+          }, restore);
+          expect(result.immediate).toEqual({ inspect: null, select: null, pin: null });
+          expect(result.latest).toEqual({ inspect: null, select: null });
+          expect(result.pin).toBeNull();
+          expect(result.events.map((event) => [event.channel, event.context])).toEqual([
+            ['inspect', null],
+            ['select', null]
+          ]);
+        });
+      }
+
+      test('a restoration requested by the Escape callback survives the earlier dismissal', async ({
+        page
+      }) => {
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          f.pin();
+          const state = f.chart!.viewState;
+          await f.replace('200');
+          let restored = false;
+          f.hook = (notification) => {
+            if (!restored && notification.channel === 'inspect' && !notification.context) {
+              restored = true;
+              f.chart!.viewState = state;
+            }
+          };
+          f.key('Escape');
+          const immediate = { restored, pin: f.chart!.viewState.pinnedKey };
+          await f.settle();
+          return { state, immediate, latest: f.latest, pin: f.chart!.viewState.pinnedKey };
+        });
+        expect(result.immediate).toEqual({ restored: true, pin: result.state.pinnedKey });
+        expect(result.pin).toBe(result.state.pinnedKey);
+        expect(inspectionValue(result.latest.select)).toBe('200');
+      });
+
+      for (const restore of ['document', 'view-state'] as const) {
+        for (const paint of [false, true]) {
+          for (const pin of [false, true]) {
+            test(`new keyboard ${pin ? 'selection' : 'navigation'} supersedes ${restore} restoration before ${paint ? 'synchronous' : 'scheduled'} paint`, async ({
+              page
+            }) => {
+              const result = await page.evaluate(
+                async ({ restore, paint, pin }) => {
+                  const f = window.notificationFixture;
+                  f.pin();
+                  const previous = f.latest.select;
+                  const state = f.chart!.viewState;
+                  f.events.length = 0;
+                  if (restore === 'document') await f.replace('200');
+                  else f.chart!.viewState = state;
+                  if (paint && 'viewport' in f.chart!)
+                    f.chart.viewport = {
+                      start: f.entry.family === 'trace' ? 0.5 : 0,
+                      end: f.entry.family === 'trace' ? 1 : 0.5,
+                      scrollOffset: 0
+                    };
+                  let ready = 0;
+                  f.chart!.addEventListener('scope-ready', () => ready++);
+                  f.key('End');
+                  if (pin) f.key('Enter');
+                  const immediate = { ...f.latest, pin: f.chart!.viewState.pinnedKey, ready };
+                  await f.settle();
+                  return {
+                    previous,
+                    immediate,
+                    latest: f.latest,
+                    pin: f.chart!.viewState.pinnedKey,
+                    events: f.events
+                  };
+                },
+                { restore, paint, pin }
+              );
+              const child = `${entry.family}:child`;
+              expect(result.immediate.ready > 0).toBe(paint);
+              expect(result.immediate.inspect?.key).toBe(child);
+              expect(result.immediate.select?.key ?? null).toBe(pin ? child : null);
+              expect(result.immediate.pin).toBe(pin ? child : null);
+              expect(result.latest.inspect?.key).toBe(child);
+              expect(inspectionValue(result.latest.inspect)).toBe('0');
+              expect(result.latest.select?.key ?? null).toBe(pin ? child : null);
+              expect(result.pin).toBe(pin ? child : null);
+              expect(result.events.every((event) => event.key !== result.previous?.key)).toBe(true);
+              if (restore === 'document')
+                expect(result.latest.inspect?.snapshotId).not.toBe(result.previous?.snapshotId);
+              else expect(result.latest.inspect?.snapshotId).toBe(result.previous?.snapshotId);
+            });
+          }
+        }
+      }
+
+      test('a restore requested during navigation paint supersedes the older keyboard action', async ({
+        page
+      }) => {
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          f.pin();
+          const state = f.chart!.viewState;
+          await f.replace('200');
+          if ('viewport' in f.chart!)
+            f.chart.viewport = {
+              start: f.entry.family === 'trace' ? 0.5 : 0,
+              end: f.entry.family === 'trace' ? 1 : 0.5,
+              scrollOffset: 0
+            };
+          let restored = false;
+          f.hook = (notification) => {
+            if (
+              !restored &&
+              notification.channel === 'inspect' &&
+              notification.key?.endsWith(':child')
+            ) {
+              restored = true;
+              f.chart!.viewState = state;
+            }
+          };
+          f.key('End');
+          const immediate = { restored, pin: f.chart!.viewState.pinnedKey };
+          await f.settle();
+          return { state, immediate, latest: f.latest, pin: f.chart!.viewState.pinnedKey };
+        });
+        expect(result.immediate).toEqual({ restored: true, pin: result.state.pinnedKey });
+        expect(result.latest.select?.key).toBe(result.state.pinnedKey);
+        expect(inspectionValue(result.latest.select)).toBe('200');
+        expect(result.pin).toBe(result.state.pinnedKey);
+      });
+    }
+
     if (entry.surface === 'component') {
       for (const channel of ['inspect', 'select'] as const) {
         test(`independent ${channel} listeners receive a nested dismissal in broadcast order`, async ({
