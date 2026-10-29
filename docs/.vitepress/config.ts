@@ -58,9 +58,7 @@ export default defineConfig({
         ? siteTitle
         : `${pageData.title} | ${siteTitle}`;
     const pageDescription = pageData.description || siteDescription;
-    const cleanPath = pageData.relativePath
-      .replace(/(?:^|\/)index\.md$/, '')
-      .replace(/\.md$/, '');
+    const cleanPath = pageData.relativePath.replace(/(?:^|\/)index\.md$/, '').replace(/\.md$/, '');
     const pageUrl = cleanPath ? `${siteUrl}/${cleanPath}` : `${siteUrl}/`;
 
     pageData.frontmatter.head ??= [];
