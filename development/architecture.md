@@ -61,6 +61,8 @@ The DOM-free `InspectionNotifications` coordinator in `core/inspection-notificat
 
 A throwing callback does not discard valid queued reports, including work added during draining; the first thrown value propagates after the queue drains. Hierarchy components cancel an older pending pin restoration before navigation can paint or Escape can notify observers; a new restoration requested by a callback remains authoritative. Escape also cancels restoration while loading has released the runtime.
 
+Early Escape invalidation stays on the Canvas input boundary; shell dismissal bubbles after toolbar handlers and skips that same Canvas event, including nested input and newer callback restores. Navigation applies a saved viewport against the current row bounds before revealing its target, so a subsequent layout cannot restore an older position over the new reading.
+
 Views own their child DOM; components release runtime resources on disconnect. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
 
 See [custom rendering](../docs/canvas-infra.md) for low-level consumers and [development](../CONTRIBUTING.md) for tests, scripts and packaging.

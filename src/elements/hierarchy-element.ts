@@ -132,6 +132,7 @@ export class HierarchyElement<
   #stateTransaction = false;
   #linkedHighlight: LinkedHighlight | null = null;
   #controlEvents = new ControlEvents();
+  #canvasEscapes = new WeakSet<Event>();
   constructor(
     readonly kind: Context['kind'],
     private compile: (input: unknown) => Compiled,
@@ -506,33 +507,41 @@ export class HierarchyElement<
       },
       { signal }
     );
-    this.#root.addEventListener(
+    const canvas = this.#el('.canvas');
+    canvas.addEventListener(
       'keydown',
       (event) => {
-        const key = event as KeyboardEvent;
+        this.#canvasEscapes.delete(event);
         if (
-          key.key !== 'Escape' ||
-          (!this.#runtime?.session.active && this.#pendingPin === undefined)
-        )
-          return;
-        const canvas = this.#el('.canvas');
-        if (
+          event.key === 'Escape' &&
           this.#runtime &&
           this.scene?.interactive !== false &&
-          !key.metaKey &&
-          !key.ctrlKey &&
-          !key.altKey &&
-          event.composedPath().includes(canvas)
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey
         ) {
-          // Cancel restoration before the runtime reports Escape; its callbacks may restore again.
+          // Cancel once before runtime callbacks, retaining any newer restore they request.
+          this.#canvasEscapes.add(event);
           this.#pendingPin = undefined;
-        } else {
-          event.preventDefault();
-          this.#clearInspection();
-          canvas.focus({ preventScroll: true });
         }
       },
       { capture: true, signal }
+    );
+    this.#root.addEventListener(
+      'keydown',
+      (event) => {
+        if (
+          (event as KeyboardEvent).key !== 'Escape' ||
+          (this.#canvasEscapes.delete(event) && event.composedPath().includes(canvas)) ||
+          (!this.#runtime?.session.active && this.#pendingPin === undefined)
+        )
+          return;
+        // Toolbar widgets can consume Escape before it reaches the chart shell.
+        event.preventDefault();
+        this.#clearInspection();
+        canvas.focus({ preventScroll: true });
+      },
+      { signal }
     );
     const outside = (event: Event) => {
       if (this.#ui.dismissOnOutside !== false && !event.composedPath().includes(this))
@@ -645,14 +654,7 @@ export class HierarchyElement<
       this.#runtime = new ChartRuntime<Source>(canvas, this.#el('.decoration'), {
         layout: (width, height, measure) => {
           const current = this.#view!;
-          this.#viewport.configure({
-            contentHeight: current.rowCount * current.rowHeight,
-            visibleHeight: hierarchyViewportHeight(height, this.#ui.axes ?? 'full')
-          });
-          if (this.#pendingViewport) {
-            this.#viewport.set(this.#pendingViewport);
-            this.#pendingViewport = null;
-          }
+          this.#prepareViewport(height);
           const scene = layoutHierarchy(
             current,
             width,
@@ -717,10 +719,23 @@ export class HierarchyElement<
       nodes: compiled.hierarchy.sources.length
     });
   }
+  #prepareViewport(height: number) {
+    const view = this.#view!;
+    this.#viewport.configure({
+      contentHeight: view.rowCount * view.rowHeight,
+      visibleHeight: hierarchyViewportHeight(height, this.#ui.axes ?? 'full')
+    });
+    if (this.#pendingViewport) {
+      this.#viewport.set(this.#pendingViewport);
+      this.#pendingViewport = null;
+    }
+  }
   #reveal(target: ChartInteraction<Source>) {
     const item = this.#view?.byId.get(target.sources[0]?.id);
     if (!item) return;
     const before = this.viewport;
+    // Reconcile the saved viewport and new row bounds before choosing a visible position.
+    this.#prepareViewport(this.#el('.canvas').getBoundingClientRect().height);
     this.#viewport.reveal(
       item.start,
       item.end,
