@@ -13,7 +13,7 @@ export interface ReadingOptions<Source> {
   onInspect?: Inspect<Source>;
   onRender?(scene: ChartScene<Source>): void;
   onError?(error: unknown): void;
-  /** Reveal a logical target before keyboard inspection, including virtualized rows. */
+  /** Reveal a committed keyboard target before reporting its reading, including virtualized rows. */
   onNavigate?(target: ChartInteraction<Source>): void;
   /** A trusted viewport host can consume a drag before hover/click inspection. */
   inputConsumed?(): boolean;

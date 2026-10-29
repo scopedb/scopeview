@@ -55,6 +55,10 @@ Reading, persistent selection, keyboard focus, ranges and viewports have distinc
 
 The internal `RuntimeLifecycle` base owns Canvas measurement, layout invalidation, frame scheduling, resize/font/DPR listeners, error recovery and resource disposal. `ReadingRuntime` and `ChartRuntime` retain their own sessions, input handling and paint-state projection. The base does not import range, link or viewport controllers, so sharing lifecycle code does not pull optional interaction capabilities into headless views.
 
+Family-owned inspection context projectors expose exact source values, field roles and ancestry to headless callbacks and component events. Shared context types and opaque document snapshot identity live in `core/inspection-context.ts`. Scalar metadata is attached directly, while source objects and ancestor chains are cloned on first read so unread hover events avoid deep copies and retained contexts keep their original snapshot.
+
+The DOM-free `InspectionNotifications` coordinator in `core/inspection-notifications.ts` owns notification identity (`snapshot`, `key`, `series`, `pinned`), deduplication and reentrancy across all families and browser entries. It retains the last delivered state across loading and document replacements so reconciled selections report updated snapshots and cleared, failed or disconnected states clear once. Delivery commits before invoking host callbacks, and nested state changes wait for the current broadcast to finish before revalidating and draining in order.
+
 Views own their child DOM; components release runtime resources on disconnect. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
 
 See [custom rendering](../docs/canvas-infra.md) for low-level consumers and [development](../CONTRIBUTING.md) for tests, scripts and packaging.

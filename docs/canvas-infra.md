@@ -61,6 +61,8 @@ Requests coalesce into one animation frame; layout wins over paint. Size or font
 
 Hierarchy hosts can combine `ViewportSession` with `/runtime`'s `ViewportController`. Create input before the runtime, forward consumed gestures through `inputConsumed`, and use `onNavigate` to reveal offscreen logical targets. Dispose both objects. The examples in [`examples/infra.html`](../examples/infra.html) and [`examples/families.html`](../examples/families.html) show complete custom consumers.
 
+Keyboard input commits the requested session state before invoking `onNavigate`. This hook may paint synchronously; changes made by host callbacks during that paint remain authoritative. The subsequent inspection reads the current session, and disposal during navigation stops further callbacks.
+
 ## Painter-only hosts
 
 `new CanvasRenderer(container, decoration, inspect)` accepts a typed scene and projects `PaintState` with `render(scene, state?)`. Hosts own measurement, layout, scheduling, state and accessible readings. Cache strategy is automatic; there is no public paint-strategy option.

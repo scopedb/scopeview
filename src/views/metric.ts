@@ -2,9 +2,11 @@ import { parseViewOptions } from './options.js';
 import type { CompiledChart } from '../families/metrics/document.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
 import type { ResultRow } from '../data/result.js';
+import type { MetricInspectionContext } from '../core/inspection-context.js';
 import { scalarView, type ScalarValue } from './scalar.js';
 import { View, type ViewOptions, type ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
+import { metricInspectionContext } from '../families/metrics/inspection-context.js';
 import tokens from '../theme/metric-tokens.css?inline';
 
 /** Aggregate documents use HTML; plot documents instantiate the report Canvas runtime. */
@@ -13,12 +15,14 @@ export function createMetric(
   compiled: CompiledChart,
   layout: MetricLayout,
   compile: (document: unknown) => CompiledChart,
-  options: ViewOptions<ResultRow> = {}
+  options: ViewOptions<ResultRow, MetricInspectionContext> = {}
 ) {
   options = parseViewOptions(options);
   let inner: ChartView;
   let disposed = false;
+  let revision = 0;
   let theme = options.theme ?? 'light';
+  let rendered = compiled;
   const scalarValues = (value: CompiledChart): ScalarValue[] => {
     const mapping = value.config.mapping;
     if (mapping.kind !== 'aggregate' || !value.document.data.rows.length) return [];
@@ -34,8 +38,18 @@ export function createMetric(
   const mount = () => {
     if (compiled.config.mapping.kind === 'aggregate')
       return scalarView(host, scalarValues(compiled), { theme });
-    const view = new View(host, { ...options, theme }, tokens, (width, height, measure, hidden) =>
-      layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal')
+    const view = new View(
+      host,
+      { ...options, theme },
+      tokens,
+      (width, height, measure, hidden) => {
+        rendered = compiled;
+        return layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal');
+      },
+      {
+        snapshot: () => rendered,
+        contextFor: (target, series) => metricInspectionContext(rendered, target, series)
+      }
     );
     view.status(compiled.document.data.rows.length ? null : 'No data');
     view.changed();
@@ -58,6 +72,7 @@ export function createMetric(
     refresh: () => inner.refresh(),
     dispose() {
       disposed = true;
+      revision++;
       inner.dispose();
       interactionHosts.delete(handle);
     }
@@ -69,11 +84,12 @@ export function createMetric(
   }
   function replace(next: CompiledChart, nextLayout: MetricLayout = layout) {
     if (disposed) throw new Error('This chart has been disposed.');
+    const current = ++revision;
     layout = nextLayout;
     const aggregate = next.config.mapping.kind === 'aggregate';
     if (aggregate !== (compiled.config.mapping.kind === 'aggregate')) {
-      if (inner instanceof View && inner.runtime.session.selected) options.onSelect?.(null);
-      if (inner instanceof View) inner.hideReading();
+      if (inner instanceof View) inner.clearInspection();
+      if (disposed || current !== revision) return;
       inner.dispose();
       compiled = next;
       inner = mount();
@@ -81,8 +97,10 @@ export function createMetric(
     } else {
       compiled = next;
       if (inner instanceof View) {
-        inner.status(compiled.document.data.rows.length ? null : 'No data');
-        inner.changed();
+        const view = inner;
+        view.status(compiled.document.data.rows.length ? null : 'No data');
+        if (disposed || current !== revision) return;
+        view.changed();
       } else inner.update(scalarValues(compiled));
     }
   }

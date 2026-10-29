@@ -10,6 +10,13 @@ export type {
 export type { ScopeErrorDetail, ScopeCommonEventDetails } from './elements/events.js';
 export type { ScopeTheme } from './elements/lifecycle.js';
 export type { ChartTheme, ThemeConfig, ThemeMode } from './theme/config.js';
+export type {
+  InspectionContext,
+  MetricInspectionContext,
+  HierarchyInspectionContext,
+  TraceInspectionContext,
+  ProfileInspectionContext
+} from './core/inspection-context.js';
 export {
   ScopeTraceElement,
   ScopeFlameElement,

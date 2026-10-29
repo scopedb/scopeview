@@ -87,6 +87,107 @@ async function mount(page: Page, kind: 'reading' | 'chart', delegated = false) {
   await expect(page.locator('#lifecycle-fixture canvas[data-layer=marks]')).toBeVisible();
 }
 
+for (const kind of ['reading', 'chart'] as const) {
+  for (const key of ['Enter', 'End']) {
+    test(`${kind} commits ${key} before navigation can paint and dismiss the reading`, async ({
+      page
+    }) => {
+      await page.goto('/tests/browser/fixtures/blank.html');
+      const result = await page.evaluate(
+        async ({ kind, key }) => {
+          const readingEntry = '/src/runtime/reading-runtime.ts',
+            chartEntry = '/src/runtime/chart-runtime.ts',
+            apiEntry = '/src/index.ts',
+            hostEntry = '/tests/browser/fixtures/host.ts';
+          const [
+            { ReadingRuntime },
+            { ChartRuntime },
+            { compileChart, layoutChart },
+            { createCanvasHost }
+          ] = await Promise.all([
+            import(readingEntry),
+            import(chartEntry),
+            import(apiEntry),
+            import(hostEntry)
+          ]);
+          const { canvas, decoration } = createCanvasHost({
+            id: 'navigation',
+            width: 400,
+            height: 200
+          });
+          const compiled = compileChart({
+            version: 1,
+            data: {
+              fields: [
+                { name: 'category', data_type: 'string' },
+                { name: 'value', data_type: 'number' }
+              ],
+              rows: [
+                ['a', '100'],
+                ['b', '200']
+              ]
+            },
+            spec: { visualization: 'bar', encoding: { x: 'category', y: ['value'] } }
+          });
+          let armed = false;
+          let disposeOnRender = false;
+          let activeDuringNavigation: string | null = null;
+          let selectedDuringNavigation: string | null = null;
+          const readings: (string | null)[] = [];
+          let runtime: ReadingRuntime<unknown> | ChartRuntime<unknown>;
+          const options = {
+            layout: (width: number, height: number) =>
+              layoutChart(compiled, new Set(), width, height, (text: string) => text.length * 7),
+            onNavigate: () => runtime.paint(),
+            onRender() {
+              if (!armed) return;
+              activeDuringNavigation = runtime.session.active?.key ?? null;
+              selectedDuringNavigation = runtime.session.selected?.key ?? null;
+              if (disposeOnRender) {
+                runtime.dispose();
+                return;
+              }
+              runtime.session.clearInspection();
+              runtime.focus(null);
+            },
+            onInspect: (target: { key: string } | null) => readings.push(target?.key ?? null)
+          };
+          runtime =
+            kind === 'reading'
+              ? new ReadingRuntime(canvas, decoration, options)
+              : new ChartRuntime(canvas, decoration, options);
+          if (kind === 'reading') (runtime as ReadingRuntime<unknown>).selectable = true;
+          await new Promise((resolve) =>
+            requestAnimationFrame(() => requestAnimationFrame(resolve))
+          );
+          runtime.session.inspect('category:a', false, true);
+          armed = true;
+          canvas.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+          const result = {
+            activeDuringNavigation,
+            selectedDuringNavigation,
+            readings: [...readings],
+            active: runtime.session.active?.key ?? null,
+            selected: runtime.session.selected?.key ?? null
+          };
+          readings.length = 0;
+          disposeOnRender = true;
+          runtime.session.inspect('category:a', false, true);
+          canvas.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true }));
+          return { ...result, disposedReadings: readings };
+        },
+        { kind, key }
+      );
+      expect(result.activeDuringNavigation).toBe(key === 'Enter' ? 'category:a' : 'category:b');
+      expect(result.selectedDuringNavigation).toBe(key === 'Enter' ? 'category:a' : null);
+      expect(result.active).toBeNull();
+      expect(result.selected).toBeNull();
+      expect(result.readings).toEqual([null]);
+      expect(result.disposedReadings).toEqual([]);
+    });
+  }
+}
+
 test.describe('reading lifecycle', () => {
   test.beforeEach(async ({ page }) => mount(page, 'reading'));
 

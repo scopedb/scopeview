@@ -107,3 +107,10 @@ export type {
   MeasureText,
   Inspect
 } from './core/scene.js';
+export type {
+  InspectionContext,
+  MetricInspectionContext,
+  HierarchyInspectionContext,
+  TraceInspectionContext,
+  ProfileInspectionContext
+} from './core/inspection-context.js';

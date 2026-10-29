@@ -1,17 +1,20 @@
 import { object, choice, boolean, fail } from '../data/validation.js';
 import type { AxisMode, ChartInteraction } from '../core/scene.js';
 import { defineTheme, type ChartTheme } from '../theme/config.js';
+import type { InspectionContext } from '../core/inspection-context.js';
 
-export interface ViewOptions<Source> {
+export interface ViewOptions<Source, Context extends InspectionContext = InspectionContext> {
   theme?: ChartTheme;
   axes?: AxisMode;
   tooltip?: boolean;
-  onInspect?(target: ChartInteraction<Source> | null): void;
-  onSelect?(target: ChartInteraction<Source> | null): void;
+  onInspect?(target: ChartInteraction<Source> | null, context: Context | null): void;
+  onSelect?(target: ChartInteraction<Source> | null, context: Context | null): void;
   onError?(error: unknown): void;
 }
 
-export function parseViewOptions<Source>(value: ViewOptions<Source>): ViewOptions<Source> {
+export function parseViewOptions<Source, Context extends InspectionContext>(
+  value: ViewOptions<Source, Context>
+): ViewOptions<Source, Context> {
   const input = object(value, 'options', [
     'theme',
     'axes',
@@ -27,5 +30,5 @@ export function parseViewOptions<Source>(value: ViewOptions<Source>): ViewOption
   for (const name of ['onInspect', 'onSelect', 'onError'])
     if (input[name] !== undefined && typeof input[name] !== 'function')
       fail(`options.${name}`, 'Expected a callback.');
-  return { ...input, theme } as ViewOptions<Source>;
+  return { ...input, theme } as ViewOptions<Source, Context>;
 }

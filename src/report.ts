@@ -2,6 +2,13 @@ import type { ViewOptions } from './views/view.js';
 import type { ReportView } from './views/host.js';
 
 export type { ChartView, ChartTheme, ThemeConfig, ThemeMode, ViewOptions } from './views/view.js';
+export type {
+  InspectionContext,
+  HierarchyInspectionContext,
+  MetricInspectionContext,
+  TraceInspectionContext,
+  ProfileInspectionContext
+} from './core/inspection-context.js';
 export type { ReportView } from './views/host.js';
 export interface ReportOptions extends ViewOptions<unknown> {
   /** Cancel mounting if the report section is removed while its module loads. */

@@ -90,11 +90,16 @@ Events bubble and cross Shadow DOM. ScopeView element listeners are typed by `/e
 ```ts
 chart.addEventListener('scope-select', (event) => {
   if (event.detail.pinned) console.log(event.detail.rows);
+  console.log(event.detail.context);
 });
 chart.addEventListener('scope-error', (event) => {
   console.error(event.detail.message);
 });
 ```
+
+`scope-inspect` and `scope-select` details include `context`, using the same serializable [source context](headless.md#inspect-source-context) as headless callbacks. It contains a `snapshotId`, exact original values and field or hierarchy information for the displayed snapshot, and is `null` when the reading is cleared. Existing detail fields remain available, and trace/profile elements infer their corresponding context types.
+
+For every family, `scope-select` describes the persistent selection: its `key` and `context` are `null` and `pinned` is `false` when keyboard navigation or dismissal clears selection, even while `scope-inspect` reports a transient reading. When data is replaced, preserved selections emit updated context after the replacement paints, and removed or cleared selections emit `null`. Track inspection events rather than treating `scope-ready`, which also fires after repainting, as a selection invalidation signal.
 
 | Event                           | Detail                                                             |
 | ------------------------------- | ------------------------------------------------------------------ |

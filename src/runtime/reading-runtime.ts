@@ -60,17 +60,19 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
             ? 'previous'
             : 'next';
       const target = this.session.next(direction);
-      if (target) this.options.onNavigate?.(target);
       this.session.inspect(target?.key ?? null, false, true);
+      if (target) this.options.onNavigate?.(target);
     } else if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       const target = this.session.active ?? this.session.next('Home');
-      if (target) this.options.onNavigate?.(target);
       this.session.inspect(target?.key ?? null, this.selectable, true);
+      if (target) this.options.onNavigate?.(target);
     } else if (event.key === 'Escape') {
       event.preventDefault();
       this.session.clearInspection();
     } else return;
+    // Navigation may paint synchronously and let host callbacks dismiss or dispose this reading.
+    if (this.signal.aborted) return;
     this.focus(this.session.active);
     this.announce();
     this.options.onInspect?.(this.session.active, null, this.session.pinned);

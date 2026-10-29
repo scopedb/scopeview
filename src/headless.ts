@@ -6,6 +6,13 @@ import type { ViewOptions, ChartView } from './views/view.js';
 export { createChart, createTrace, createFlame };
 export { createScalar, type ScalarInput, type ScalarValue } from './scalar.js';
 export type { ChartView, ChartTheme, ThemeConfig, ThemeMode, ViewOptions } from './views/view.js';
+export type {
+  InspectionContext,
+  HierarchyInspectionContext,
+  MetricInspectionContext,
+  TraceInspectionContext,
+  ProfileInspectionContext
+} from './core/inspection-context.js';
 export type { AxisMode } from './core/scene.js';
 
 /** Use a family entry when its kind is known, so other families need not be shipped. */

@@ -35,6 +35,9 @@ export class ChartSession<Source = ResultRow> {
   get series(): string | null {
     return this.#series;
   }
+  get selectedSeries(): string | null {
+    return this.#selectedSeries;
+  }
   get tooltipLocked(): boolean {
     return this.#tooltipLocked;
   }

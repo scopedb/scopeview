@@ -2,6 +2,7 @@ import type { CompiledChart } from '../families/metrics/document.js';
 import { metricLayoutKind } from '../families/metrics/layout-kind.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
 import type { ResultRow } from '../data/result.js';
+import type { MetricInspectionContext } from '../core/inspection-context.js';
 import { createMetric } from './metric.js';
 import type { ChartView, ViewOptions } from './view.js';
 
@@ -14,7 +15,7 @@ export function chartFactory(
   return (
     host: HTMLElement,
     document: unknown,
-    options: ViewOptions<ResultRow> = {}
+    options: ViewOptions<ResultRow, MetricInspectionContext> = {}
   ): ChartView => {
     const prepare = (document: unknown) => {
       const compiled = compile(document);

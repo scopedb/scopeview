@@ -42,20 +42,49 @@ Keep the input document in application state. A headless view does not expose co
 
 ## Options and readings
 
-| Option              | Default     | Behavior                                                          |
-| ------------------- | ----------- | ----------------------------------------------------------------- |
-| `theme`             | `'light'`   | Mode shortcut or theme object; `system` follows the OS preference |
-| `axes`              | `'minimal'` | Sparse rulers; use `'full'` or `'none'` when needed               |
-| `tooltip`           | `true`      | Show the built-in reading                                         |
-| `onInspect(target)` | —           | Receive the transient reading or `null`                           |
-| `onSelect(target)`  | —           | Receive persistent selection after enabling interactions          |
-| `onError(error)`    | —           | Receive asynchronous rendering failures                           |
+| Option                       | Default     | Behavior                                                               |
+| ---------------------------- | ----------- | ---------------------------------------------------------------------- |
+| `theme`                      | `'light'`   | Mode shortcut or theme object; `system` follows the OS preference      |
+| `axes`                       | `'minimal'` | Sparse rulers; use `'full'` or `'none'` when needed                    |
+| `tooltip`                    | `true`      | Show the built-in reading                                              |
+| `onInspect(target, context)` | —           | Receive the transient reading and source context, or two `null` values |
+| `onSelect(target, context)`  | —           | Receive persistent selection and context after enabling interactions   |
+| `onError(error)`             | —           | Receive asynchronous rendering failures                                |
 
 A target contains `key`, original `sources` and `tooltip` rows. Metric sources are result rows; trace/profile sources are spans/frames. `tooltip: false` keeps inspection callbacks available. Invalid document errors throw at the API call rather than arriving through `onError`.
 
 Hover, click and keyboard arrows inspect. Home/End jump to boundary targets; Escape dismisses. Default views leave page scrolling alone. Trace/profile plots fit all depths; small marks retain exact keyboard readings even when their labels cannot fit.
 
 `document.options.interactive: false` disables chart input. Pass `tooltip: false` in the factory options to hide the reading while retaining callbacks. Titles, legends and controls are host UI; Web Components configure them through `configure()`. They are not accepted in document options. Unknown factory or document settings throw with their path before mounting. [Styling](styling.md) covers height, fonts and inherited tokens. The [options reference](options.md) separates document settings from component UI.
+
+## Inspect source context
+
+Both callbacks receive a second argument with exact source context, or `null`. Metric factories infer `MetricInspectionContext`, `createTrace` infers `TraceInspectionContext`, and `createFlame` infers `ProfileInspectionContext`; mixed-family factories use the `InspectionContext` union. Each factory entry and the package root export their corresponding context types.
+
+The context is JSON-serializable and identifies the captured document with `version: 1`, `kind`, `key`, an opaque `snapshotId`, and its optional title and description. Source objects are detached copies of the painted snapshot, so retaining or mutating a context does not affect subsequent updates.
+
+```ts
+const chart = createChart(host, requests, {
+  onInspect(target, context) {
+    if (!target || !context) return;
+    console.log(context.snapshotId, context.rowIndices, context.rows);
+    console.log(context.fields, context.spec, context.series);
+  },
+  onSelect(_target, context) {
+    console.log('Selected source:', context);
+  }
+});
+```
+
+| Context kind | Exact source and context                                                                                                                   |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `metric`     | Raw `rows`, zero-based `rowIndices`, ordered `fields`, normalized `spec`, inspected `series`, supplied `semantics` and value display rules |
+| `trace`      | Raw `span`, supplied `ancestors` ordered root to parent, exact `durationNs` string and trace `coverage`                                    |
+| `profile`    | Raw `frame`, supplied `ancestors`, `unit`, exact inclusive `totalWeight` and `profileTotalWeight` strings                                  |
+
+Metric timestamps and numeric cells retain the supplied strings, including sub-millisecond timestamps, large integers and decimal precision. NULL and zero remain distinct. Use fields and the normalized spec to identify time, value and series roles, including duplicate field names. A metric target can include several source rows at the same time; `series` identifies the inspected series when the pointer identifies one, and is `null` for a whole-target reading. Profile `frame.selfWeight` is the raw self weight; `totalWeight` includes supplied descendants. Missing hierarchy parents are not invented.
+
+`snapshotId` remains stable across inspection, selection, resizing, themes and visibility changes for one compiled document, and changes when data is replaced. A compatible persistent selection reconciles to the replacement and reports the new `snapshotId` and values; clearing or dismissing a reading or selection reports `null` for both arguments. The [headless example](../examples/headless.html) displays the callback's JSON beside each family.
 
 ## Load layouts on demand
 

@@ -1,6 +1,14 @@
 import { object, boolean } from '../data/validation.js';
 import type { ChartInteraction, ChartScene, Position } from '../core/scene.js';
 import { inspectionText } from '../core/labels.js';
+import {
+  InspectionNotifications,
+  type InspectionReading
+} from '../core/inspection-notifications.js';
+import {
+  withInspectionContext,
+  type HierarchyInspectionContext
+} from '../core/inspection-context.js';
 import { ViewportSession, type ViewportState } from '../core/viewport.js';
 import type { Entity, EntityDocument, Hierarchy } from '../families/hierarchy/model.js';
 import {
@@ -46,11 +54,15 @@ import {
 } from './controls.js';
 import type { ScopeCommonEventDetails, ScopeEventListener, ScopeEventMap } from './events.js';
 
-export interface HierarchyInspectionDetail<Source extends Entity = Entity> {
-  kind: 'trace' | 'profile';
+export interface HierarchyInspectionDetail<
+  Source extends Entity = Entity,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
+> {
+  kind: Context['kind'];
   key: string | null;
   pinned: boolean;
   sources: Source[];
+  context: Context | null;
 }
 export interface HierarchyReadyDetail {
   visualization: 'trace' | 'profile';
@@ -59,17 +71,20 @@ export interface HierarchyReadyDetail {
 export interface HierarchyCollapseChangeDetail {
   collapsed: string[];
 }
-export interface HierarchyEventDetails<Source extends Entity = Entity>
-  extends ScopeCommonEventDetails {
+export interface HierarchyEventDetails<
+  Source extends Entity = Entity,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
+> extends ScopeCommonEventDetails {
   'scope-ready': HierarchyReadyDetail;
-  'scope-inspect': HierarchyInspectionDetail<Source>;
-  'scope-select': HierarchyInspectionDetail<Source>;
+  'scope-inspect': HierarchyInspectionDetail<Source, Context>;
+  'scope-select': HierarchyInspectionDetail<Source, Context>;
   'scope-viewport-change': ViewportState;
   'scope-collapse-change': HierarchyCollapseChangeDetail;
 }
-export type HierarchyEventMap<Source extends Entity = Entity> = ScopeEventMap<
-  HierarchyEventDetails<Source>
->;
+export type HierarchyEventMap<
+  Source extends Entity = Entity,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
+> = ScopeEventMap<HierarchyEventDetails<Source, Context>>;
 interface CompiledEntity<Source extends Entity, Doc extends EntityDocument> {
   document: Doc;
   hierarchy: Hierarchy<Source>;
@@ -79,10 +94,12 @@ interface CompiledEntity<Source extends Entity, Doc extends EntityDocument> {
 export class HierarchyElement<
   Source extends Entity,
   Doc extends EntityDocument,
-  Compiled extends CompiledEntity<Source, Doc>
+  Compiled extends CompiledEntity<Source, Doc>,
+  Context extends HierarchyInspectionContext = HierarchyInspectionContext
 > extends HTMLElement {
   static observedAttributes = ['loading', 'error', 'theme', 'style', 'class'];
   #compiled: Compiled | null = null;
+  #renderedCompiled: Compiled | null = null;
   #ui: EntityComponentOptions = {};
   get #options() {
     return { ...this.#ui, interactive: this.#compiled?.document.options?.interactive };
@@ -100,8 +117,14 @@ export class HierarchyElement<
   #propertySet = false;
   #frame = 0;
   #page = 0;
-  #lastKey: string | null = null;
-  #lastPinned = false;
+  #notifications = new InspectionNotifications<Source, Compiled>(() => ({
+    snapshot: this.#renderedCompiled,
+    inspect: {
+      target: this.#runtime?.session.active ?? null,
+      pinned: this.#runtime?.session.pinned ?? false
+    },
+    select: { target: this.#runtime?.session.selected ?? null }
+  }));
   #pendingPin: string | null | undefined;
   #pendingViewport: ViewportState | null = null;
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
@@ -110,12 +133,16 @@ export class HierarchyElement<
   #linkedHighlight: LinkedHighlight | null = null;
   #controlEvents = new ControlEvents();
   constructor(
-    readonly kind: 'trace' | 'profile',
+    readonly kind: Context['kind'],
     private compile: (input: unknown) => Compiled,
     private createView: (
       compiled: Compiled,
       collapsed: ReadonlySet<string>
-    ) => HierarchyView<Source>
+    ) => HierarchyView<Source>,
+    private inspectionContext: (
+      compiled: Compiled,
+      target: ChartInteraction<Source> | null
+    ) => Context | null
   ) {
     super();
     this.#root = this.attachShadow({ mode: 'open' });
@@ -206,6 +233,7 @@ export class HierarchyElement<
     const state = parseViewState(value);
     if (state.kind === 'metric' || state.kind !== this.kind)
       throw new TypeError(`Expected ${this.kind} view state.`);
+    this.#notifications.invalidate();
     this.#input?.cancel();
     this.#applyState(state);
     this.#stateReason = 'restore';
@@ -254,9 +282,9 @@ export class HierarchyElement<
   set theme(value: ScopeTheme) {
     this.#appearance.value = value;
   }
-  addEventListener<K extends keyof HierarchyEventMap<Source>>(
+  addEventListener<K extends keyof HierarchyEventMap<Source, Context>>(
     type: K,
-    listener: ScopeEventListener<this, HierarchyEventMap<Source>[K]>,
+    listener: ScopeEventListener<this, HierarchyEventMap<Source, Context>[K]>,
     options?: boolean | AddEventListenerOptions
   ): void;
   addEventListener(
@@ -271,9 +299,9 @@ export class HierarchyElement<
   ) {
     super.addEventListener(type, listener, options);
   }
-  removeEventListener<K extends keyof HierarchyEventMap<Source>>(
+  removeEventListener<K extends keyof HierarchyEventMap<Source, Context>>(
     type: K,
-    listener: ScopeEventListener<this, HierarchyEventMap<Source>[K]>,
+    listener: ScopeEventListener<this, HierarchyEventMap<Source, Context>[K]>,
     options?: boolean | EventListenerOptions
   ): void;
   removeEventListener(
@@ -395,11 +423,17 @@ export class HierarchyElement<
   #rebuild() {
     this.#view = this.#compiled ? this.createView(this.#compiled, this.#collapsed) : null;
   }
-  #emit<K extends keyof HierarchyEventDetails<Source>>(
+  #emit<K extends keyof HierarchyEventDetails<Source, Context>>(
     type: K,
-    detail: HierarchyEventDetails<Source>[K]
+    detail: HierarchyEventDetails<Source, Context>[K]
   ) {
     this.#notifyControls();
+    this.#dispatch(type, detail);
+  }
+  #dispatch<K extends keyof HierarchyEventDetails<Source, Context>>(
+    type: K,
+    detail: HierarchyEventDetails<Source, Context>[K]
+  ) {
     this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
   }
   #changedViewport() {
@@ -528,6 +562,7 @@ export class HierarchyElement<
   #dispose() {
     this.#runtime?.dispose();
     this.#runtime = null;
+    this.#renderedCompiled = null;
     this.#input?.dispose();
     this.#input = null;
   }
@@ -601,7 +636,7 @@ export class HierarchyElement<
             this.#viewport.set(this.#pendingViewport);
             this.#pendingViewport = null;
           }
-          return layoutHierarchy(
+          const scene = layoutHierarchy(
             current,
             width,
             height,
@@ -609,6 +644,8 @@ export class HierarchyElement<
             this.viewport,
             this.#ui.axes ?? 'full'
           );
+          this.#renderedCompiled = this.#compiled;
+          return scene;
         },
         onNavigate: (target) => this.#reveal(target),
         inputConsumed: () => this.#input?.consumed ?? false,
@@ -624,14 +661,14 @@ export class HierarchyElement<
   }
   #rendered() {
     const scene = this.scene,
-      view = this.#view;
-    if (!scene || !view) return;
+      view = this.#view,
+      compiled = this.#renderedCompiled;
+    if (!scene || !view || !compiled) return;
     if (this.#pendingPin !== undefined) {
       this.#runtime!.session.restorePin(scene.interactive === false ? null : this.#pendingPin);
       this.#pendingPin = undefined;
       this.#runtime!.focus(this.#runtime!.session.active);
     }
-    this.#status('ready', null);
     const rail = this.#el('.tree-scroll');
     rail.hidden =
       scene.interactive === false || view.rowCount * view.rowHeight <= scene.rect!.height;
@@ -645,16 +682,18 @@ export class HierarchyElement<
     summary.hidden = this.#ui.summary === false;
     const coverage =
       this.kind === 'trace'
-        ? ((this.#compiled!.document as EntityDocument & { coverage?: string }).coverage ??
-          'unknown')
+        ? ((compiled.document as EntityDocument & { coverage?: string }).coverage ?? 'unknown')
         : null;
-    summary.textContent = `${this.#compiled!.hierarchy.sources.length.toLocaleString('en-US')} nodes${coverage ? ` · ${coverage} trace coverage` : ''}${view.issues.length ? ` · ${view.issues.length} relationship warning${view.issues.length === 1 ? '' : 's'}` : ''}`;
+    summary.textContent = `${compiled.hierarchy.sources.length.toLocaleString('en-US')} nodes${coverage ? ` · ${coverage} trace coverage` : ''}${view.issues.length ? ` · ${view.issues.length} relationship warning${view.issues.length === 1 ? '' : 's'}` : ''}`;
+    this.#status('ready', null);
+    if (compiled !== this.#compiled || !this.isConnected) return;
     this.#showInspection(null, false, this.#stateReason);
+    if (compiled !== this.#compiled || !this.isConnected) return;
     this.#stateChanged(this.#stateReason);
     this.#stateReason = 'reconcile';
     this.#emit('scope-ready', {
       visualization: this.kind,
-      nodes: this.#compiled!.hierarchy.sources.length
+      nodes: compiled.hierarchy.sources.length
     });
   }
   #reveal(target: ChartInteraction<Source>) {
@@ -678,15 +717,24 @@ export class HierarchyElement<
       this.#stateChanged();
     }
   }
-  #detail(): HierarchyInspectionDetail<Source> {
-    return {
-      kind: this.kind,
-      key: this.#runtime?.session.active?.key ?? null,
-      pinned: this.#runtime?.session.pinned ?? false,
-      sources: structuredClone([...(this.#runtime?.session.active?.sources ?? [])])
-    };
+  #detail(
+    reading: InspectionReading<Source>,
+    compiled: Compiled | null
+  ): HierarchyInspectionDetail<Source, Context> {
+    const { target: active, pinned = false } = reading,
+      project = this.inspectionContext;
+    return withInspectionContext(
+      {
+        kind: this.kind,
+        key: active?.key ?? null,
+        pinned,
+        sources: structuredClone([...(active?.sources ?? [])])
+      },
+      () => (compiled ? project(compiled, active) : null)
+    );
   }
   #clearInspection() {
+    this.#notifications.invalidate();
     this.#pendingPin = undefined;
     this.#runtime?.session.clearInspection();
     this.#runtime?.focus(null);
@@ -697,10 +745,8 @@ export class HierarchyElement<
     emit: boolean,
     reason: ViewStateChangeDetail['reason'] = 'interaction'
   ) {
-    const active = this.#runtime?.session.active,
-      pinned = this.#runtime?.session.pinned ?? false;
-    const changed = this.#lastKey !== (active?.key ?? null),
-      unpinned = this.#lastPinned && !pinned;
+    const batch = this.#notifications.capture();
+    const { target: active, pinned } = batch.state.inspect;
     const tooltip = this.#el('.tooltip');
     this.#el('.inspect').toggleAttribute('data-active', pinned);
     const id = active?.sources[0]?.id,
@@ -712,27 +758,31 @@ export class HierarchyElement<
       this.#el('.collapse').setAttribute('aria-expanded', String(!this.#collapsed.has(id!)));
     else this.#el('.collapse').removeAttribute('aria-expanded');
     this.#notifyControls();
-    if (!active) {
-      hideInspection(tooltip);
-      this.#el('.live').textContent = '';
-    } else if ((pinned ? this.#ui.inspector : this.#ui.tooltip) === false) {
-      hideInspection(tooltip);
-      this.#el('.live').textContent = inspectionText(active);
-    } else {
-      dockInspection(tooltip, pinned);
-      renderInspection(tooltip, active, pinned, () => {
-        this.#clearInspection();
-        this.#el('.canvas').focus({ preventScroll: true });
-      });
-      this.#placeTooltip(position);
-      const reading = inspectionText(active);
-      if (this.#el('.live').textContent !== reading) this.#el('.live').textContent = reading;
+    if (batch.current('inspect')) {
+      if (!active) {
+        hideInspection(tooltip);
+        this.#el('.live').textContent = '';
+      } else if ((pinned ? this.#ui.inspector : this.#ui.tooltip) === false) {
+        hideInspection(tooltip);
+        this.#el('.live').textContent = inspectionText(active);
+      } else {
+        dockInspection(tooltip, pinned);
+        renderInspection(tooltip, active, pinned, () => {
+          this.#clearInspection();
+          this.#el('.canvas').focus({ preventScroll: true });
+        });
+        this.#placeTooltip(position);
+        const reading = inspectionText(active);
+        if (this.#el('.live').textContent !== reading) this.#el('.live').textContent = reading;
+      }
     }
-    this.#lastKey = active?.key ?? null;
-    this.#lastPinned = pinned;
     if (!this.#stateTransaction) {
-      if (emit || changed || unpinned) this.#emit('scope-inspect', this.#detail());
-      if (unpinned || (emit && pinned)) this.#emit('scope-select', this.#detail());
+      for (const channel of ['inspect', 'select'] as const)
+        batch.emit(
+          channel,
+          (value, snapshot) => this.#dispatch(`scope-${channel}`, this.#detail(value, snapshot)),
+          { force: channel === 'inspect' && emit, before: () => this.#notifyControls() }
+        );
     }
     this.#stateChanged(reason);
   }

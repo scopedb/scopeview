@@ -1,4 +1,6 @@
 import type { ChartInteraction, Position } from '../core/scene.js';
+import type { InspectionContext } from '../core/inspection-context.js';
+import { InspectionNotifications } from '../core/inspection-notifications.js';
 import type { SceneLayout } from '../runtime/types.js';
 import { ReadingRuntime } from '../runtime/reading-runtime.js';
 import { node } from '../ui/dom.js';
@@ -12,7 +14,7 @@ export type { ChartTheme, ChartView, ThemeConfig, ThemeMode } from './host.js';
 import type { ViewOptions } from './options.js';
 export type { ViewOptions } from './options.js';
 /** A canvas and transient reading. Application UI stays outside this owned child. */
-export class View<Source> extends ViewHost implements ChartView {
+export class View<Source, Context extends InspectionContext> extends ViewHost implements ChartView {
   readonly canvas = node('div', 'canvas');
   readonly runtime: ReadingRuntime<Source>;
   readonly signal: AbortSignal;
@@ -21,16 +23,37 @@ export class View<Source> extends ViewHost implements ChartView {
   #tooltip = node('div', 'tooltip');
   #status = node('div', 'status');
   #statusMessage: string | null = null;
-  #selected: ChartInteraction<Source> | null = null;
-  #inspected: ChartInteraction<Source> | null = null;
+  #readingVisible = true;
   #position: Position | null = null;
   #cleanups: (() => void)[] = [];
+  #notifications = new InspectionNotifications<Source>(() => {
+    const session = this.runtime.session;
+    return {
+      snapshot: this.inspection.snapshot(),
+      inspect: {
+        target:
+          !this.#readingVisible || this.runtime.model?.interactive === false
+            ? null
+            : session.keyboardInspection
+              ? session.active
+              : this.#position
+                ? session.hovered
+                : null,
+        series: session.series
+      },
+      select: { target: session.selected, series: session.selectedSeries }
+    };
+  });
 
   constructor(
     host: HTMLElement,
-    readonly options: ViewOptions<Source>,
+    readonly options: ViewOptions<Source, Context>,
     tokens: string,
     layout: SceneLayout<Source>,
+    private readonly inspection: {
+      snapshot(): object | null;
+      contextFor(target: ChartInteraction<Source> | null, series: string | null): Context | null;
+    },
     input: {
       onNavigate?(target: ChartInteraction<Source>): void;
       inputConsumed?(): boolean;
@@ -65,20 +88,13 @@ export class View<Source> extends ViewHost implements ChartView {
       select: (enabled) => {
         if (this.disposed) return;
         this.runtime.selectable = enabled;
-        if (!enabled) {
-          this.runtime.session.clearInspection();
-          this.runtime.focus(null);
-          this.#reading();
-        }
+        if (!enabled) this.clearInspection();
       },
       cleanup: (callback) => this.cleanup(callback)
     });
     const dismiss = (event: Event) => {
       if (event.composedPath().includes(this.element)) return;
-      this.runtime.session.clearInspection();
-      this.runtime.focus(null);
-      this.#position = null;
-      this.#reading();
+      this.clearInspection();
     };
     document.addEventListener('pointerdown', dismiss, { signal: this.signal });
     document.addEventListener('focusin', dismiss, { signal: this.signal });
@@ -93,44 +109,45 @@ export class View<Source> extends ViewHost implements ChartView {
   }
   #reading() {
     if (this.disposed) return;
-    const session = this.runtime.session;
-    const target =
-      this.runtime.model?.interactive === false
-        ? null
-        : session.keyboardInspection
-          ? session.active
-          : this.#position
-            ? session.hovered
-            : null;
-    if (session.selected !== this.#selected) {
-      this.#selected = session.selected;
-      this.options.onSelect?.(this.#selected);
-    }
-    if (this.#inspected !== target) {
-      this.#inspected = target;
-      this.options.onInspect?.(target);
-    }
+    this.#readingVisible = true;
+    const batch = this.#notifications.capture();
+    const { target, series } = batch.state.inspect;
     if (!target || this.options.tooltip === false) {
       hideInspection(this.#tooltip);
-      return;
+    } else {
+      renderPreview(this.#tooltip, target, series);
+      const bounds = this.canvas.getBoundingClientRect();
+      const anchor = this.#position ?? this.runtime.anchor(target);
+      if (anchor)
+        positionInspection(this.#tooltip, {
+          x: bounds.left + anchor.x,
+          y: bounds.top + anchor.y
+        });
+      else hideInspection(this.#tooltip);
     }
-    renderPreview(this.#tooltip, target, session.series);
-    const bounds = this.canvas.getBoundingClientRect();
-    const anchor = this.#position ?? this.runtime.anchor(target);
-    if (anchor)
-      positionInspection(this.#tooltip, {
-        x: bounds.left + anchor.x,
-        y: bounds.top + anchor.y
-      });
-    else hideInspection(this.#tooltip);
+    this.#report(batch);
+  }
+  #report(batch: ReturnType<InspectionNotifications<Source>['capture']>) {
+    batch.emit('select', (value) =>
+      this.options.onSelect?.(value.target, this.inspection.contextFor(value.target, value.series))
+    );
+    batch.emit('inspect', (value) =>
+      this.options.onInspect?.(value.target, this.inspection.contextFor(value.target, value.series))
+    );
   }
   hideReading() {
+    this.#readingVisible = false;
     this.#position = null;
+    this.#notifications.invalidate('inspect');
     hideInspection(this.#tooltip);
-    if (this.#inspected !== null) {
-      this.#inspected = null;
-      if (!this.disposed) this.options.onInspect?.(null);
-    }
+    this.#report(this.#notifications.capture());
+  }
+  clearInspection() {
+    this.#notifications.invalidate();
+    this.runtime.session.clearInspection();
+    this.runtime.focus(null);
+    this.#position = null;
+    this.#reading();
   }
   status(message: string | null) {
     this.#statusMessage = message;
@@ -144,6 +161,7 @@ export class View<Source> extends ViewHost implements ChartView {
   }
   changed() {
     this.assertActive();
+    this.#notifications.invalidate();
     this.hideReading();
     this.runtime.session.inspect(null);
     this.runtime.refresh();
@@ -153,6 +171,7 @@ export class View<Source> extends ViewHost implements ChartView {
   }
   dispose() {
     if (this.disposed) return;
+    this.#notifications.dispose();
     this.disposed = true;
     this.hideReading();
     for (const cleanup of this.#cleanups) cleanup();
