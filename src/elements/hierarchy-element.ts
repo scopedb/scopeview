@@ -90,6 +90,10 @@ interface CompiledEntity<Source extends Entity, Doc extends EntityDocument> {
   hierarchy: Hierarchy<Source>;
 }
 
+function sameViewport(a: Readonly<ViewportState>, b: Readonly<ViewportState>) {
+  return a.start === b.start && a.end === b.end && a.scrollOffset === b.scrollOffset;
+}
+
 /** Shared shell for entity families. Family compilers own semantics; runtime owns paint/input. */
 export class HierarchyElement<
   Source extends Entity,
@@ -127,6 +131,9 @@ export class HierarchyElement<
   }));
   #pendingPin: string | null | undefined;
   #pendingViewport: ViewportState | null = null;
+  #pendingReveal: string | null = null;
+  #renderedViewport: (() => boolean) | null = null;
+  #viewportEvents = { revision: 0, notifying: false, pending: null as number | null };
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
   #lastState = '';
   #stateTransaction = false;
@@ -192,6 +199,7 @@ export class HierarchyElement<
     object(options, 'options', ['preserveViewState']);
     if (options.preserveViewState !== undefined)
       boolean(options.preserveViewState, 'options.preserveViewState');
+    this.#viewportEvents.revision++;
     const previous = options.preserveViewState ? this.viewState : null;
     this.#stateTransaction = true;
     this.#propertySet = true;
@@ -242,6 +250,8 @@ export class HierarchyElement<
     this.refresh();
   }
   #applyState(state: HierarchyViewState) {
+    this.#viewportEvents.revision++;
+    this.#pendingReveal = null;
     this.#collapsed = new Set(
       state.collapsed.filter((id) => this.#compiled?.hierarchy.children.get(id)?.length)
     );
@@ -359,6 +369,8 @@ export class HierarchyElement<
     this.#input?.cancel();
     const tree = this.#compiled?.hierarchy;
     if (!tree?.byId.has(id)) throw new RangeError(`Unknown node: ${id}`);
+    this.#pendingPin = undefined;
+    this.#pendingReveal = null;
     let parent = tree.byId.get(id)?.parentId,
       expanded = false;
     while (parent && tree.byId.has(parent)) {
@@ -438,6 +450,8 @@ export class HierarchyElement<
     this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
   }
   #changedViewport() {
+    this.#pendingReveal = null;
+    const notify = this.#captureViewport();
     if (
       !this.#runtime?.session.pinned &&
       !this.#runtime?.session.keyboardInspection &&
@@ -445,8 +459,32 @@ export class HierarchyElement<
     )
       this.#clearInspection();
     this.#runtime?.refresh();
-    this.#emit('scope-viewport-change', { ...this.viewport });
-    this.#stateChanged();
+    if (notify()) this.#stateChanged();
+  }
+  #captureViewport() {
+    const events = this.#viewportEvents;
+    const revision = ++events.revision;
+    return () => {
+      if (revision !== events.revision) return false;
+      events.pending = revision;
+      if (events.notifying) return true;
+      events.notifying = true;
+      try {
+        while (events.pending !== null) {
+          const current = events.pending;
+          events.pending = null;
+          if (current !== events.revision) continue;
+          this.#notifyControls();
+          // Host callbacks may replace the document, restore state or move the viewport again.
+          if (current === events.revision)
+            this.#dispatch('scope-viewport-change', { ...this.viewport });
+        }
+        return revision === events.revision;
+      } finally {
+        events.notifying = false;
+        events.pending = null;
+      }
+    };
   }
   #schedule() {
     if (!this.isConnected || this.#frame) return;
@@ -571,6 +609,7 @@ export class HierarchyElement<
     this.#schedule();
   }
   disconnectedCallback() {
+    this.#viewportEvents.revision++;
     cancelAnimationFrame(this.#frame);
     this.#frame = 0;
     this.#mutation?.disconnect();
@@ -586,6 +625,7 @@ export class HierarchyElement<
     else this.refresh();
   }
   #dispose() {
+    this.#renderedViewport = null;
     this.#runtime?.dispose();
     this.#runtime = null;
     this.#renderedCompiled = null;
@@ -654,7 +694,16 @@ export class HierarchyElement<
       this.#runtime = new ChartRuntime<Source>(canvas, this.#el('.decoration'), {
         layout: (width, height, measure) => {
           const current = this.#view!;
+          const before = this.viewport;
+          const reveal = this.#pendingReveal;
+          this.#pendingReveal = null;
+          this.#renderedViewport = null;
           this.#prepareViewport(height);
+          if (reveal && this.#runtime?.session.active?.sources[0]?.id === reveal) {
+            this.#positionNode(reveal);
+            if (!sameViewport(before, this.viewport))
+              this.#renderedViewport = this.#captureViewport();
+          }
           const scene = layoutHierarchy(
             current,
             width,
@@ -683,6 +732,8 @@ export class HierarchyElement<
     } else this.#runtime.refresh();
   }
   #rendered() {
+    const notify = this.#renderedViewport;
+    this.#renderedViewport = null;
     const scene = this.scene,
       view = this.#view,
       compiled = this.#renderedCompiled;
@@ -712,6 +763,8 @@ export class HierarchyElement<
     if (compiled !== this.#compiled || !this.isConnected) return;
     this.#showInspection(null, false, this.#stateReason);
     if (compiled !== this.#compiled || !this.isConnected) return;
+    notify?.();
+    if (compiled !== this.#compiled || !this.isConnected) return;
     this.#stateChanged(this.#stateReason);
     this.#stateReason = 'reconcile';
     this.#emit('scope-ready', {
@@ -730,27 +783,32 @@ export class HierarchyElement<
       this.#pendingViewport = null;
     }
   }
-  #reveal(target: ChartInteraction<Source>) {
-    const item = this.#view?.byId.get(target.sources[0]?.id);
+  #positionNode(id: string) {
+    const item = this.#view?.byId.get(id);
     if (!item) return;
-    const before = this.viewport;
-    // Reconcile the saved viewport and new row bounds before choosing a visible position.
-    this.#prepareViewport(this.#el('.canvas').getBoundingClientRect().height);
     this.#viewport.reveal(
       item.start,
       item.end,
       item.row * this.#view!.rowHeight,
       (item.row + 1) * this.#view!.rowHeight
     );
-    const after = this.viewport;
-    if (
-      before.start !== after.start ||
-      before.end !== after.end ||
-      before.scrollOffset !== after.scrollOffset
-    ) {
+  }
+  #reveal(target: ChartInteraction<Source>) {
+    const id = target.sources[0]?.id;
+    if (!id || !this.#view?.byId.has(id)) return;
+    const bounds = this.#el('.canvas').getBoundingClientRect();
+    const hidden = bounds.width <= 0 || bounds.height <= 0;
+    this.#pendingReveal = hidden ? id : null;
+    // Hidden hosts retain the last valid measurement and replay positioning when visible.
+    const height = bounds.height > 0 ? bounds.height : this.scene?.height;
+    if (!height) return;
+    const before = this.viewport;
+    this.#prepareViewport(height);
+    this.#positionNode(id);
+    if (!sameViewport(before, this.viewport)) {
+      const notify = this.#captureViewport();
       this.#runtime?.paint();
-      this.#emit('scope-viewport-change', { ...after });
-      this.#stateChanged();
+      if (notify()) this.#stateChanged();
     }
   }
   #detail(
@@ -772,6 +830,7 @@ export class HierarchyElement<
   #clearInspection() {
     this.#notifications.invalidate();
     this.#pendingPin = undefined;
+    this.#pendingReveal = null;
     this.#runtime?.session.clearInspection();
     this.#runtime?.focus(null);
     this.#showInspection(null, false);

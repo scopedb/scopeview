@@ -63,6 +63,8 @@ A throwing callback does not discard valid queued reports, including work added 
 
 Early Escape invalidation stays on the Canvas input boundary; shell dismissal bubbles after toolbar handlers and skips that same Canvas event, including nested input and newer callback restores. Navigation applies a saved viewport against the current row bounds before revealing its target, so a subsequent layout cannot restore an older position over the new reading.
 
+Hierarchy viewport reports capture a revision before render or control callbacks and read current coordinates after revalidation. Viewport commands, document changes and state restores supersede older reports. Nested events finish the current broadcast before synchronously reporting the latest valid window, preserving observer order. Hidden focus uses the last valid scene height and replays positioning when measurement resumes; newer dismissal, viewport, document or restored state cancels that deferred positioning.
+
 Views own their child DOM; components release runtime resources on disconnect. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
 
 See [custom rendering](../docs/canvas-infra.md) for low-level consumers and [development](../CONTRIBUTING.md) for tests, scripts and packaging.

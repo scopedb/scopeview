@@ -755,6 +755,10 @@ for (const entry of inspectionEntries) {
           };
           await f.settle();
           await f.replace('200');
+          const viewportEvents: unknown[] = [];
+          chart.addEventListener('scope-viewport-change', (event) =>
+            viewportEvents.push((event as CustomEvent<unknown>).detail)
+          );
           let restored = false;
           f.hook = (notification) => {
             if (
@@ -770,12 +774,13 @@ for (const entry of inspectionEntries) {
           f.key('End');
           const immediate = { restored, pin: chart.viewState.pinnedKey };
           await f.settle();
-          return { state, immediate, latest: f.latest, restored: chart.viewState };
+          return { state, immediate, latest: f.latest, restored: chart.viewState, viewportEvents };
         });
         expect(result.immediate).toEqual({ restored: true, pin: result.state.pinnedKey });
         expect(result.latest.select?.key).toBe(result.state.pinnedKey);
         expect(inspectionValue(result.latest.select)).toBe('200');
         expect(result.restored).toEqual(result.state);
+        expect(result.viewportEvents).toEqual([]);
       });
     }
 
