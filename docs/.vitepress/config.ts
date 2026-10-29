@@ -14,8 +14,16 @@ export default defineConfig({
   lang: 'en-US',
   base,
   srcExclude: ['README.md'],
+  sitemap: {
+    hostname: 'https://scopeview.scopedb.io'
+  },
   outDir: fileURLToPath(new URL('../../.local/docs-site', import.meta.url)),
   cacheDir: fileURLToPath(new URL('../../.local/docs-cache', import.meta.url)),
+  vite: {
+    build: {
+      chunkSizeWarningLimit: 1000
+    }
+  },
   head: [
     [
       'link',
@@ -24,7 +32,9 @@ export default defineConfig({
         type: 'image/svg+xml',
         href: `${base}icon.svg`
       }
-    ]
+    ],
+    ['meta', { property: 'og:site_name', content: 'ScopeView' }],
+    ['meta', { property: 'og:type', content: 'website' }]
   ],
   themeConfig: {
     logo: '/icon.svg',

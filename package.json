@@ -147,6 +147,7 @@
     "tokens:generate": "node scripts/tokens.mjs",
     "docs:dev": "vitepress dev docs --host 127.0.0.1",
     "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs --host 127.0.0.1",
     "test:node": "node --test tests/node/*.test.mjs",
     "test:package": "node tests/package/run.mjs",
     "build:cli": "pnpm build && node scripts/distribution.mjs",
