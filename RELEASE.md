@@ -50,7 +50,7 @@ Use the accepted artifact from the release run, after all verification and nativ
 
 ## Release procedure
 
-1. Prepare a commit with the intended `package.json` version and a dated changelog heading, for example `## v0.1.0 (2026-10-28)`. Keep the notes focused on the released behavior. Review and merge the changes.
+1. Prepare a commit with the intended `package.json` version and move the accumulated entries from `## Unreleased` under a dated changelog heading immediately below it, for example `## v0.1.0 (2026-10-28)`. Keep `## Unreleased` at the top and keep the notes focused on the released behavior. Review and merge the changes.
 2. Optionally run **Release** through `workflow_dispatch` on the candidate ref. This builds and tests all artifacts without publishing. Artifact retention is seven days.
 3. Create and push `v<version>` at that reviewed commit. This is the publication trigger. Tag/version mismatches and undated changelog entries fail before building. Never move a published tag or reuse an npm version.
 4. `release.yml` calls the normal verification workflow, packages and tests all six native targets, verifies checksums, then publishes the accepted npm bytes using OIDC. It creates the GitHub Release with those same artifacts and the changelog section.
