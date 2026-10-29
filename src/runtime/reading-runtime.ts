@@ -1,12 +1,15 @@
-import { ChartSession } from '../core/session.js';
+import { interactionFor, readingPhase } from '../core/interaction.js';
+import { readingState } from '../core/reading-state.js';
+import { ReadingSession } from '../core/reading-session.js';
 import type { ChartInteraction, ChartScene } from '../core/scene.js';
 import { RuntimeLifecycle } from './lifecycle.js';
 import type { ReadingOptions } from './types.js';
+import { inspectKey } from './inspection-input.js';
 
 /** Report lifecycle and transient reading. Range, links and viewport controllers stay optional. */
 export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
   protected declare readonly options: ReadingOptions<Source>;
-  readonly session = new ChartSession<Source>('compare');
+  readonly session = new ReadingSession<Source>();
   selectable = false;
 
   constructor(canvas: HTMLElement, decoration: HTMLElement, options: ReadingOptions<Source>) {
@@ -15,11 +18,13 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
       decoration,
       (target, position, pin, series) => {
         if (options.inputConsumed?.()) return;
-        if (!this.session.inspect(target?.key ?? null, pin && this.selectable, false, series))
-          return;
-        this.focus(this.session.active);
-        this.announce();
-        options.onInspect?.(this.session.active, position, this.session.pinned, series);
+        interactionFor(this.session).batch(() => {
+          if (!this.session.inspect(target?.key ?? null, pin && this.selectable, false, series))
+            return;
+          this.focus(this.session.active);
+          this.announce();
+          options.onInspect?.(this.session.active, position, this.session.pinned, series);
+        });
       },
       options
     );
@@ -50,32 +55,37 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
     this.announce();
   }
   protected keyboard(event: KeyboardEvent) {
-    if (event.metaKey || event.ctrlKey || event.altKey || this.model?.interactive === false) return;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const direction =
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-            ? 'previous'
-            : 'next';
-      const target = this.session.next(direction);
-      this.session.inspect(target?.key ?? null, false, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      const target = this.session.active ?? this.session.next('Home');
-      this.session.inspect(target?.key ?? null, this.selectable, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.session.clearInspection();
-    } else return;
-    // Navigation may paint synchronously and let host callbacks dismiss or dispose this reading.
-    if (this.signal.aborted) return;
-    this.focus(this.session.active);
-    this.announce();
-    this.options.onInspect?.(this.session.active, null, this.session.pinned);
+    interactionFor(this.session).batch(() => this.#keyboard(event));
+  }
+  #keyboard(event: KeyboardEvent) {
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      this.model?.interactive === false
+    )
+      return;
+    const interaction = interactionFor(this.session);
+    const target = inspectKey(event, this.session, this.selectable);
+    if (target === undefined) return;
+    if (target) {
+      const intent = readingState(this.session).intent;
+      interaction.effect(() => {
+        if (!this.signal.aborted && intent === readingState(this.session).intent)
+          this.options.onNavigate?.(target);
+      });
+    }
+    interaction.effect(
+      () => {
+        if (this.signal.aborted) return;
+        this.focus(this.session.active);
+        this.announce();
+        this.options.onInspect?.(this.session.active, null, this.session.pinned);
+      },
+      {},
+      readingPhase
+    );
   }
   protected release() {
     this.session.reset();

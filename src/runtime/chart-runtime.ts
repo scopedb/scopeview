@@ -1,3 +1,6 @@
+import { inspectKey, ownsInspectionDismissal } from './inspection-input.js';
+import { interactionFor, claimInteraction, readingPhase } from '../core/interaction.js';
+import { readingState, releaseReading } from '../core/reading-state.js';
 import { ChartSession } from '../core/session.js';
 import { RangeSelectionSession, type RangeSelectionBinding } from '../core/range.js';
 import type { ChartInteraction, ChartScene, Inspect, Position } from '../core/scene.js';
@@ -72,11 +75,14 @@ export class ChartRuntime<Source = ResultRow>
       decoration,
       (target, position, pin, series, neighbors) => {
         if (this.#gesture?.consumed || this.options.inputConsumed?.()) return;
-        this.#inspect(target, position, pin, series, neighbors);
+        interactionFor(this.session).batch(() =>
+          this.#inspect(target, position, pin, series, neighbors)
+        );
       },
       { ...options }
     );
     this.session = new ChartSession<Source>(options.inspectionMode);
+    claimInteraction(this.session, canvas);
     this.#originalTouchAction = canvas.style.touchAction;
     this.#originalAttributes = ['tabindex', 'role', 'aria-label', 'aria-hidden'].map(
       (name) => [name, canvas.getAttribute(name)] as const
@@ -400,7 +406,18 @@ export class ChartRuntime<Source = ResultRow>
     }
   }
   protected keyboard(event: KeyboardEvent) {
-    if (event.metaKey || event.ctrlKey || event.altKey || this.model?.interactive === false) return;
+    interactionFor(this.session).batch(() => this.#keyboard(event));
+  }
+  #keyboard(event: KeyboardEvent) {
+    if (event.key === 'Escape' && ownsInspectionDismissal(this.canvas)) return;
+    if (
+      event.defaultPrevented ||
+      event.metaKey ||
+      event.ctrlKey ||
+      event.altKey ||
+      this.model?.interactive === false
+    )
+      return;
     const range = this.range;
     const endpoint = (event.target as HTMLElement).dataset?.endpoint as 'start' | 'end' | undefined;
     const adjusting = range.enabled && (event.shiftKey || endpoint || range.preview);
@@ -437,32 +454,28 @@ export class ChartRuntime<Source = ResultRow>
       return;
     }
     if (this.options.keyboard === false) return;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const key =
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-            ? 'previous'
-            : 'next';
-      const target = this.session.next(key);
-      this.session.inspect(target?.key ?? null, false, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      const target = this.session.active ?? this.session.next('Home');
-      this.session.inspect(target?.key ?? null, true, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.session.clearInspection();
-    } else return;
-    if (this.signal.aborted) return;
-    this.focus(this.session.active);
-    this.announce();
-    this.options.onInspect?.(this.session.active, null, this.session.pinned);
+    const target = inspectKey(event, this.session, true);
+    if (target === undefined) return;
+    if (target) {
+      const intent = readingState(this.session).intent;
+      interactionFor(this.session).effect(() => {
+        if (!this.signal.aborted && intent === readingState(this.session).intent)
+          this.options.onNavigate?.(target);
+      });
+    }
+    interactionFor(this.session).effect(
+      () => {
+        if (this.signal.aborted) return;
+        this.focus(this.session.active);
+        this.announce();
+        this.options.onInspect?.(this.session.active, null, this.session.pinned);
+      },
+      {},
+      readingPhase
+    );
   }
   protected release() {
+    releaseReading(this.session);
     this.#cancel();
     this.#binding = null;
     this.range.reset();

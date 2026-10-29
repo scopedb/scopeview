@@ -1,3 +1,5 @@
+import { readingState } from '../core/reading-state.js';
+import { interactionFor } from '../core/interaction.js';
 import type { PaintInvalidation } from '../core/painter.js';
 import type {
   ChartInteraction,
@@ -32,6 +34,7 @@ export abstract class RuntimeLifecycle<Source> {
   #resize: ResizeObserver;
   #measure = new CanvasSurface('measure');
   #frame = 0;
+  #revision = 0;
   // Cleared measurements leave layout pending, including while the host is hidden.
   #measurement: { width: number; height: number; font: string } | null = null;
 
@@ -77,54 +80,97 @@ export abstract class RuntimeLifecycle<Source> {
     );
   }
   #invalidate(reason: PaintInvalidation = 'layout') {
-    if (reason === 'layout') this.#measurement = null;
+    if (reason === 'layout') {
+      this.#measurement = null;
+      this.#revision++;
+    }
     if (this.options.invalidate) this.options.invalidate(reason);
     else this.refresh(reason);
   }
   /** Layout invalidation wins when several requests share a frame. */
   refresh(reason: PaintInvalidation = 'layout') {
     if (this.signal.aborted) return;
-    if (reason === 'layout') this.#measurement = null;
+    if (reason === 'layout') {
+      this.#measurement = null;
+      this.#revision++;
+    }
     if (this.#frame) return;
     this.#frame = requestAnimationFrame(() => {
       this.#frame = 0;
-      try {
-        this.paint(this.options.layout, 'paint');
-      } catch (error) {
-        this.#measurement = null;
-        this.painter.model = null;
-        this.session.setModel(null);
-        this.canvas.replaceChildren();
-        this.canvas.setAttribute('aria-label', 'Chart rendering failed.');
-        this.options.onError?.(error);
-      }
+      const interaction = interactionFor(this.session);
+      interaction.batch(() => {
+        try {
+          this.paint(this.options.layout, 'paint');
+        } catch (error) {
+          this.#measurement = null;
+          this.painter.model = null;
+          this.session.setModel(null);
+          this.canvas.replaceChildren();
+          this.canvas.setAttribute('aria-label', 'Chart rendering failed.');
+          const revision = this.#revision;
+          const version = readingState(this.session).modelVersion;
+          interaction.effect(
+            () => this.options.onError?.(error),
+            {},
+            0,
+            () =>
+              !this.signal.aborted &&
+              revision === this.#revision &&
+              version === readingState(this.session).modelVersion
+          );
+        }
+      });
     });
   }
   /** Synchronous render for a host's coordinated state transaction. */
   paint(layout = this.options.layout, reason: PaintInvalidation = 'layout') {
     if (this.signal.aborted || !layout) return;
-    this.options.layout = layout;
-    if (reason === 'layout') this.#measurement = null;
-    const { width, height } = this.canvas.getBoundingClientRect();
-    if (width <= 0 || height <= 0) return;
-    const font = canvasFont(this.canvas);
-    let scene = this.painter.model;
-    if (
-      !scene ||
-      width !== this.#measurement?.width ||
-      height !== this.#measurement?.height ||
-      font !== this.#measurement?.font
-    ) {
-      const context = this.#measure.context;
-      context.font = font;
-      const measure: MeasureText = (text) => context.measureText(text).width;
-      measure.fontSize = parseFloat(font);
-      scene = layout(width, height, measure, this.session.hidden);
-      this.#measurement = { width, height, font };
-    }
-    this.session.setModel(scene.navigation ?? scene);
-    this.draw(scene);
-    this.options.onRender?.(scene);
+    const interaction = interactionFor(this.session);
+    interaction.batch(() => {
+      this.options.layout = layout;
+      if (reason === 'layout') {
+        this.#measurement = null;
+        this.#revision++;
+      }
+      const revision = this.#revision;
+      const modelVersion = readingState(this.session).modelVersion;
+      const current = () =>
+        !this.signal.aborted &&
+        revision === this.#revision &&
+        modelVersion === readingState(this.session).modelVersion;
+      const { width, height } = this.canvas.getBoundingClientRect();
+      if (width <= 0 || height <= 0) return;
+      const font = canvasFont(this.canvas);
+      let scene = this.painter.model;
+      if (
+        !scene ||
+        width !== this.#measurement?.width ||
+        height !== this.#measurement?.height ||
+        font !== this.#measurement?.font
+      ) {
+        const context = this.#measure.context;
+        context.font = font;
+        const measure: MeasureText = (text) => context.measureText(text).width;
+        measure.fontSize = parseFloat(font);
+        try {
+          scene = layout(width, height, measure, this.session.hidden);
+        } catch (error) {
+          if (!current()) return;
+          throw error;
+        }
+        if (!current()) return;
+        this.#measurement = { width, height, font };
+      }
+      this.session.setModel(scene.navigation ?? scene);
+      this.draw(scene);
+      const rendered = scene;
+      interaction.effect(
+        () => this.options.onRender?.(rendered),
+        {},
+        0,
+        () => !this.signal.aborted && this.painter.model === rendered
+      );
+    });
   }
   anchor(target: ChartInteraction<Source>) {
     return this.painter.anchor(target);

@@ -86,6 +86,23 @@ Metric timestamps and numeric cells retain the supplied strings, including sub-m
 
 `snapshotId` remains stable across inspection, selection, resizing, themes and visibility changes for one compiled document, and changes when data is replaced. A compatible persistent selection reconciles to the replacement and reports the new `snapshotId` and values; clearing or dismissing a reading or selection reports `null` for both arguments. The [headless example](../examples/headless.html) displays the callback's JSON beside each family.
 
+## Inspection notifications
+
+The following contract also applies to the Web Components' `scope-inspect` and `scope-select` events. A context describes the source snapshot captured for that notification; public getters describe the latest accepted logical state. The two can differ during a callback that submits a newer command. Synchronous setters and methods commit before returning; painting and asynchronous report downloads have their own completion boundaries.
+
+In headless callbacks, `target` is a library-owned interaction record. Use the separate, detached `context` value for retaining or mutating application-owned source data.
+
+For example, listener 1 receives a notification for A and synchronously restores B. Its next `viewState` read sees B. Listener 2 still receives the same event for A, and its `viewState` read also sees B. Notifications for B follow after the current callback and DOM broadcast finish. Read the event's context to interpret that event, and use getters when you need the latest state.
+
+- A context's key, raw values, series/time fields and ancestors belong to one `snapshotId`. Retaining it, including reading lazy source fields after an update or disposal, keeps that snapshot. Reusing a key in another document does not reuse its snapshot identity. Treat event details as snapshot data; consumers that mutate a detail share that mutation with other listeners of the same event.
+- Inspection and selection are state notifications, not a log of every input or intermediate transition. Superseded pending values can be coalesced. Once a notification starts, the library finishes that callback or DOM broadcast before delivering its successor. Selection is independent of transient hover, so changing hover does not cancel an otherwise current selection report.
+- Quiet layout, theme and size changes do not repeat an unchanged source reading. Explicit component reading input can repeat `scope-inspect` even when its identity is unchanged; headless callbacks deduplicate that identity. Pending repeated reports can still coalesce. Same-value viewport or collapse acknowledgements do not create another change event.
+- An already painted frame keeps its originating snapshot while a replacement awaits paint. A report never combines an old frame's source with the replacement's fields or ancestry. Compatible selections reconcile according to the entry's existing update policy and publish replacement context after a compatible paint.
+- A callback may dismiss, restore, update or dispose its chart. Those commands invalidate older pending work in the affected channels. Headless disposal is silent and cancels pending callbacks; components preserve their final-clear behavior on disconnection. Retained contexts remain usable.
+- Headless callback failures do not roll back committed state. Other eligible notifications in the same synchronous flush run before the first thrown value propagates. Changing-value feedback yields to a later task after bounded work; remaining work is scheduled before an error propagates. DOM listener exceptions follow browser event-dispatch behavior. The queue does not guarantee that a host loop producing different values will converge.
+
+Component notifications preserve this relative order: controls, inspection/selection and collapse/visibility, viewport, portable view state, then ready. For a fresh reading, components enqueue inspect before select; headless views enqueue select before inspect. Reentry can replace a pending channel's value while retaining its earlier queue position, so different commands do not have a total inspect/select order or an atomic pair of notifications. Ready follows a completed frame from the current source and can repeat on repaint; a hidden container must paint its replacement before reporting that replacement as ready. Track inspection events for selection invalidation.
+
 ## Load layouts on demand
 
 `createReport` returns `Promise<ReportView>`. Its `update` method also returns a Promise:

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import type { InspectionContext } from '../../src/index.js';
 import { inspectionEntries, inspectionValue } from './fixtures/inspection-matrix.js';
 
 for (const entry of inspectionEntries) {
@@ -11,6 +12,20 @@ for (const entry of inspectionEntries) {
           await import(module);
         window.notificationFixture = await createInspectionFixture(entry);
       }, entry);
+    });
+
+    test('preserves its repeated reading notification policy', async ({ page }) => {
+      const result = await page.evaluate(() => {
+        const f = window.notificationFixture;
+        f.events.length = 0;
+        f.key('Home');
+        f.key('Home');
+        return f.events;
+      });
+      expect(result).toHaveLength(entry.surface === 'component' ? 2 : 1);
+      expect(result.every((event) => event.channel === 'inspect')).toBe(true);
+      expect(result.every((event) => inspectionValue(event.context) === '100')).toBe(true);
+      expect(new Set(result.map((event) => event.context?.snapshotId)).size).toBe(1);
     });
 
     test('pointer and keyboard deliver matching targets, exact snapshots and independent selections', async ({
@@ -104,7 +119,9 @@ for (const entry of inspectionEntries) {
         expect(result.repeated).toEqual([]);
       });
 
-      test(`${channel} callback replacement supersedes the earlier snapshot`, async ({ page }) => {
+      test(`${channel} callback replacement supersedes the earlier snapshot and retains unread context`, async ({
+        page
+      }) => {
         const result = await page.evaluate(async (channel) => {
           const f = window.notificationFixture;
           const module = '/tests/browser/fixtures/inspection-matrix.ts';
@@ -112,21 +129,29 @@ for (const entry of inspectionEntries) {
             await import(module);
           f.pin();
           f.events.length = 0;
+          const previous = f.latest.select!.snapshotId;
+          let retained: InspectionContext | null = null;
           let replacement: Promise<void> | undefined;
           f.hook = (notification) => {
             if (
-              !replacement &&
+              !retained &&
               notification.channel === channel &&
-              inspectionValue(notification.context) === '200'
-            )
+              notification.context &&
+              notification.context.snapshotId !== previous
+            ) {
+              retained = notification.context;
               replacement = f.replace('300');
+            }
           };
           await f.replace('200');
           await f.settle();
           await replacement;
           await f.settle();
+          const latest = { ...f.latest };
+          f.dispose();
           return {
-            latest: f.latest,
+            latest,
+            retained: retained as InspectionContext | null,
             values: f.events.map((event) => ({
               channel: event.channel,
               value: inspectionValue(event.context)
@@ -134,6 +159,9 @@ for (const entry of inspectionEntries) {
           };
         }, channel);
         expect(inspectionValue(result.latest.select)).toBe('300');
+        expect(inspectionValue(result.retained)).toBe('200');
+        expect(result.retained?.key).toBe(result.latest.select?.key);
+        expect(result.retained?.snapshotId).not.toBe(result.latest.select?.snapshotId);
         for (const name of ['inspect', 'select']) {
           const values = result.values
             .filter((event) => event.channel === name)
@@ -334,6 +362,453 @@ for (const entry of inspectionEntries) {
         expect(
           result.events.every((event) => !event.context || inspectionValue(event.context) === '300')
         ).toBe(true);
+      });
+    }
+
+    if (entry.surface !== 'component') {
+      test('a failing queued selection callback does not discard the inspection clear', async ({
+        page
+      }) => {
+        const errors: string[] = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          f.pin();
+          f.key('End');
+          f.events.length = 0;
+          let dismissed = false;
+          f.hook = (notification) => {
+            if (notification.channel !== 'select') return;
+            if (!notification.context) throw new Error('Queued selection failure');
+            dismissed = true;
+            f.dismiss();
+          };
+          f.key('Enter');
+          await f.settle();
+          const events = f.events.splice(0);
+          f.repaint();
+          await f.settle();
+          return {
+            dismissed,
+            events,
+            repeated: f.events,
+            latest: f.latest,
+            hidden: f.tooltipHidden
+          };
+        });
+        expect(errors).toEqual(['Queued selection failure']);
+        expect(result.dismissed).toBe(true);
+        expect(result.events.map((event) => [event.channel, event.key])).toEqual([
+          ['select', result.events[0].key],
+          ['select', null],
+          ['inspect', null]
+        ]);
+        expect(result.latest).toEqual({ inspect: null, select: null });
+        expect(result.hidden).toBe(true);
+        expect(result.repeated).toEqual([]);
+      });
+    }
+
+    if (entry.surface === 'component' && entry.family !== 'metric') {
+      for (const replace of [false, true]) {
+        test(`toolbar handles Escape before chart dismissal${replace ? ' while replacing data' : ''}`, async ({
+          page
+        }) => {
+          const previous = await page.evaluate(async (replace) => {
+            const f = window.notificationFixture;
+            const toolbar = document.createElement('div');
+            toolbar.slot = 'toolbar';
+            const input = document.createElement('input');
+            input.id = 'toolbar-editor';
+            input.dataset.handled = '0';
+            input.addEventListener('keydown', (event) => {
+              if (event.key !== 'Escape' || input.dataset.bubble) return;
+              input.dataset.handled = String(Number(input.dataset.handled) + 1);
+              if (replace) void f.replace('200');
+              event.preventDefault();
+              event.stopPropagation();
+            });
+            toolbar.append(input);
+            f.chart!.append(toolbar);
+            await f.settle();
+            f.pin();
+            input.focus();
+            f.events.length = 0;
+            return f.latest.select;
+          }, replace);
+          await page.keyboard.press('Escape');
+          const handled = await page.evaluate(async () => {
+            const f = window.notificationFixture;
+            await f.settle();
+            return {
+              latest: f.latest,
+              pin: f.chart!.viewState.pinnedKey,
+              events: f.events.splice(0)
+            };
+          });
+          await expect(page.locator('#toolbar-editor')).toBeFocused();
+          await expect(page.locator('#toolbar-editor')).toHaveAttribute('data-handled', '1');
+          expect(handled.pin).toBe(previous?.key);
+          expect(handled.latest.select?.key).toBe(previous?.key);
+          expect(inspectionValue(handled.latest.select)).toBe(replace ? '200' : '100');
+          expect(handled.events.every((event) => event.context)).toBe(true);
+          if (!replace) expect(handled.events).toEqual([]);
+          await page.locator('#toolbar-editor').evaluate((input) => {
+            input.dataset.bubble = 'true';
+          });
+          await page.keyboard.press('Escape');
+          const dismissed = await page.evaluate(() => {
+            const f = window.notificationFixture;
+            return {
+              latest: f.latest,
+              pin: f.chart!.viewState.pinnedKey,
+              focused: f.root.activeElement === f.canvas,
+              events: f.events.map((event) => [event.channel, event.context])
+            };
+          });
+          expect(dismissed).toEqual({
+            latest: { inspect: null, select: null },
+            pin: null,
+            focused: true,
+            events: [
+              ['inspect', null],
+              ['select', null]
+            ]
+          });
+        });
+      }
+
+      for (const restore of ['document', 'view-state'] as const) {
+        for (const pin of [false, true]) {
+          test(`navigation reveals its target in a pending ${restore} viewport${pin ? ' before pinning' : ''}`, async ({
+            page
+          }) => {
+            const result = await page.evaluate(
+              async ({ restore, pin }) => {
+                const f = window.notificationFixture;
+                const chart = f.chart!;
+                if (!('viewport' in chart)) throw new Error('Expected a hierarchy component');
+                f.pin();
+                chart.viewport = {
+                  start: f.entry.family === 'trace' ? 0.5 : 0,
+                  end: f.entry.family === 'trace' ? 1 : 0.5,
+                  scrollOffset: 0
+                };
+                await f.settle();
+                const state = chart.viewState;
+                const previous = f.latest.select;
+                if (restore === 'document') await f.replace('200');
+                else chart.viewState = state;
+                f.key('End');
+                if (pin) f.key('Enter');
+                const immediate = { viewport: chart.viewport, state: chart.viewState };
+                await f.settle();
+                return {
+                  previous,
+                  immediate,
+                  latest: f.latest,
+                  state: chart.viewState,
+                  viewport: chart.viewport,
+                  painted: chart.scene!.interactions.map((target) => target.key)
+                };
+              },
+              { restore, pin }
+            );
+            const child = `${entry.family}:child`;
+            const viewport = {
+              start: entry.family === 'trace' ? 0 : 0.5,
+              end: entry.family === 'trace' ? 0.5 : 1,
+              scrollOffset: 0
+            };
+            expect(result.immediate.viewport).toEqual(viewport);
+            expect(result.immediate.state.viewport).toEqual(viewport);
+            expect(result.viewport).toEqual(viewport);
+            expect(result.state.viewport).toEqual(viewport);
+            expect(result.latest.inspect?.key).toBe(child);
+            expect(inspectionValue(result.latest.inspect)).toBe('0');
+            expect(result.latest.select?.key ?? null).toBe(pin ? child : null);
+            expect(result.state.pinnedKey).toBe(pin ? child : null);
+            expect(result.painted).toContain(child);
+            if (restore === 'document')
+              expect(result.latest.inspect?.snapshotId).not.toBe(result.previous?.snapshotId);
+          });
+        }
+      }
+
+      test('navigation uses replacement row bounds before restoring the viewport', async ({
+        page
+      }) => {
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          const chart = f.chart!;
+          if (!('viewport' in chart)) throw new Error('Expected a hierarchy component');
+          f.pin();
+          const nodes = [
+            { id: 'a', name: 'a' },
+            ...Array.from({ length: 18 }, (_, i) => ({
+              id: `middle-${i}`,
+              name: 'middle',
+              parentId: i ? `middle-${i - 1}` : 'a'
+            })),
+            { id: 'child', name: 'child', parentId: 'middle-17' }
+          ];
+          const source =
+            f.entry.family === 'trace'
+              ? {
+                  version: 1,
+                  kind: 'trace',
+                  spans: nodes.map((node, i) => ({
+                    ...node,
+                    startTimeNs: '0',
+                    endTimeNs: i ? '0' : '200'
+                  })),
+                  options: { rowHeight: 32 }
+                }
+              : {
+                  version: 1,
+                  kind: 'profile',
+                  unit: 'samples',
+                  frames: nodes.map((node, i) => ({
+                    ...node,
+                    selfWeight: i ? '0' : '200'
+                  })),
+                  options: { rowHeight: 32 }
+                };
+          chart.updateDocument(source, { preserveViewState: true });
+          f.key('End');
+          await f.settle();
+          return {
+            latest: f.latest,
+            viewport: chart.viewport,
+            state: chart.viewState,
+            painted: chart.scene!.interactions.map((target) => target.key)
+          };
+        });
+        expect(result.latest.inspect?.key).toBe(`${entry.family}:child`);
+        expect(result.latest.select).toBeNull();
+        expect(result.viewport.scrollOffset).toBe(20 * 32 - (240 - 64));
+        expect(result.state.viewport).toEqual(result.viewport);
+        expect(result.painted).toContain(`${entry.family}:child`);
+      });
+
+      for (const restore of ['document', 'view-state', 'loading'] as const) {
+        test(`Escape cancels a pending ${restore} pin restoration`, async ({ page }) => {
+          const result = await page.evaluate(async (restore) => {
+            const f = window.notificationFixture;
+            f.pin();
+            const state = f.chart!.viewState;
+            f.events.length = 0;
+            if (restore === 'document') await f.replace('200');
+            else if (restore === 'view-state') f.chart!.viewState = state;
+            else {
+              f.chart!.loading = true;
+              await f.settle();
+            }
+            f.key('Escape');
+            const immediate = { ...f.latest, pin: f.chart!.viewState.pinnedKey };
+            f.chart!.loading = false;
+            await f.settle();
+            return {
+              immediate,
+              latest: f.latest,
+              pin: f.chart!.viewState.pinnedKey,
+              events: f.events
+            };
+          }, restore);
+          expect(result.immediate).toEqual({ inspect: null, select: null, pin: null });
+          expect(result.latest).toEqual({ inspect: null, select: null });
+          expect(result.pin).toBeNull();
+          expect(result.events.map((event) => [event.channel, event.context])).toEqual([
+            ['inspect', null],
+            ['select', null]
+          ]);
+        });
+      }
+
+      test('a restoration requested by the Escape callback survives the earlier dismissal', async ({
+        page
+      }) => {
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          f.pin();
+          const state = f.chart!.viewState;
+          await f.replace('200');
+          let restored = false;
+          f.hook = (notification) => {
+            if (!restored && notification.channel === 'inspect' && !notification.context) {
+              restored = true;
+              f.chart!.viewState = state;
+            }
+          };
+          f.key('Escape');
+          const immediate = { restored, pin: f.chart!.viewState.pinnedKey };
+          await f.settle();
+          return { state, immediate, latest: f.latest, pin: f.chart!.viewState.pinnedKey };
+        });
+        expect(result.immediate).toEqual({ restored: true, pin: result.state.pinnedKey });
+        expect(result.pin).toBe(result.state.pinnedKey);
+        expect(inspectionValue(result.latest.select)).toBe('200');
+      });
+
+      test('nested Escape callbacks retain the latest restoration', async ({ page }) => {
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          const chart = f.chart!;
+          if (!('viewport' in chart)) throw new Error('Expected a hierarchy component');
+          f.pin();
+          const state = {
+            ...chart.viewState,
+            viewport: { start: 0.25, end: 0.75, scrollOffset: 0 }
+          };
+          await f.replace('200');
+          let phase = 0;
+          f.hook = (notification) => {
+            if (notification.channel !== 'inspect' || notification.context || phase === 2) return;
+            phase++;
+            chart.viewState = state;
+            if (phase === 1) f.key('Escape');
+          };
+          f.key('Escape');
+          const immediate = { phase, pin: chart.viewState.pinnedKey };
+          await f.settle();
+          return { immediate, state: chart.viewState, latest: f.latest };
+        });
+        expect(result.immediate).toEqual({ phase: 2, pin: `${entry.family}:a` });
+        expect(result.state.pinnedKey).toBe(`${entry.family}:a`);
+        expect(result.state.viewport).toEqual({ start: 0.25, end: 0.75, scrollOffset: 0 });
+        expect(inspectionValue(result.latest.select)).toBe('200');
+      });
+
+      test('Escape still dismisses after reusing an event across loading', async ({ page }) => {
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          const escapeEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+          f.pin();
+          f.canvas.dispatchEvent(escapeEvent);
+          f.pin();
+          f.chart!.loading = true;
+          await f.settle();
+          f.events.length = 0;
+          f.canvas.dispatchEvent(escapeEvent);
+          f.chart!.loading = false;
+          await f.settle();
+          return {
+            latest: f.latest,
+            pin: f.chart!.viewState.pinnedKey,
+            events: f.events.map((event) => [event.channel, event.context])
+          };
+        });
+        expect(result).toEqual({
+          latest: { inspect: null, select: null },
+          pin: null,
+          events: [
+            ['inspect', null],
+            ['select', null]
+          ]
+        });
+      });
+
+      for (const restore of ['document', 'view-state'] as const) {
+        for (const paint of [false, true]) {
+          for (const pin of [false, true]) {
+            test(`new keyboard ${pin ? 'selection' : 'navigation'} supersedes ${restore} restoration before ${paint ? 'synchronous' : 'scheduled'} paint`, async ({
+              page
+            }) => {
+              const result = await page.evaluate(
+                async ({ restore, paint, pin }) => {
+                  const f = window.notificationFixture;
+                  f.pin();
+                  const previous = f.latest.select;
+                  const state = f.chart!.viewState;
+                  f.events.length = 0;
+                  if (restore === 'document') await f.replace('200');
+                  else f.chart!.viewState = state;
+                  if (paint && 'viewport' in f.chart!)
+                    f.chart.viewport = {
+                      start: f.entry.family === 'trace' ? 0.5 : 0,
+                      end: f.entry.family === 'trace' ? 1 : 0.5,
+                      scrollOffset: 0
+                    };
+                  let ready = 0;
+                  f.chart!.addEventListener('scope-ready', () => ready++);
+                  f.key('End');
+                  if (pin) f.key('Enter');
+                  const immediate = { ...f.latest, pin: f.chart!.viewState.pinnedKey, ready };
+                  await f.settle();
+                  return {
+                    previous,
+                    immediate,
+                    latest: f.latest,
+                    pin: f.chart!.viewState.pinnedKey,
+                    events: f.events
+                  };
+                },
+                { restore, paint, pin }
+              );
+              const child = `${entry.family}:child`;
+              expect(result.immediate.ready > 0).toBe(paint);
+              expect(result.immediate.inspect?.key).toBe(child);
+              expect(result.immediate.select?.key ?? null).toBe(pin ? child : null);
+              expect(result.immediate.pin).toBe(pin ? child : null);
+              expect(result.latest.inspect?.key).toBe(child);
+              expect(inspectionValue(result.latest.inspect)).toBe('0');
+              expect(result.latest.select?.key ?? null).toBe(pin ? child : null);
+              expect(result.pin).toBe(pin ? child : null);
+              expect(result.events.every((event) => event.key !== result.previous?.key)).toBe(true);
+              if (restore === 'document')
+                expect(result.latest.inspect?.snapshotId).not.toBe(result.previous?.snapshotId);
+              else expect(result.latest.inspect?.snapshotId).toBe(result.previous?.snapshotId);
+            });
+          }
+        }
+      }
+
+      test('a restore requested during navigation paint supersedes the older keyboard action', async ({
+        page
+      }) => {
+        const result = await page.evaluate(async () => {
+          const f = window.notificationFixture;
+          const chart = f.chart!;
+          if (!('viewport' in chart)) throw new Error('Expected a hierarchy component');
+          f.pin();
+          const previous = f.latest.select;
+          const state = {
+            ...chart.viewState,
+            viewport: { start: 0.25, end: 0.75, scrollOffset: 0 }
+          };
+          chart.viewport = {
+            start: f.entry.family === 'trace' ? 0.5 : 0,
+            end: f.entry.family === 'trace' ? 1 : 0.5,
+            scrollOffset: 0
+          };
+          await f.settle();
+          await f.replace('200');
+          const viewportEvents: unknown[] = [];
+          chart.addEventListener('scope-viewport-change', (event) =>
+            viewportEvents.push((event as CustomEvent<unknown>).detail)
+          );
+          let restored = false;
+          f.hook = (notification) => {
+            if (
+              !restored &&
+              notification.channel === 'inspect' &&
+              notification.key?.endsWith(':child') &&
+              notification.context?.snapshotId !== previous?.snapshotId
+            ) {
+              restored = true;
+              chart.viewState = state;
+            }
+          };
+          f.key('End');
+          const immediate = { restored, pin: chart.viewState.pinnedKey };
+          await f.settle();
+          return { state, immediate, latest: f.latest, restored: chart.viewState, viewportEvents };
+        });
+        expect(result.immediate).toEqual({ restored: true, pin: result.state.pinnedKey });
+        expect(result.latest.select?.key).toBe(result.state.pinnedKey);
+        expect(inspectionValue(result.latest.select)).toBe('200');
+        expect(result.restored).toEqual(result.state);
+        expect(result.viewportEvents).toEqual([]);
       });
     }
 
