@@ -8,9 +8,15 @@ import type { Entity } from '../../../src/families/hierarchy/model.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   Interaction,
+  channel,
   interactionFor,
   shareInteraction,
-  claimInteraction
+  claimInteraction,
+  controlsPhase,
+  readingPhase,
+  viewportPhase,
+  viewStatePhase,
+  readyPhase
 } from '../../../src/core/interaction.js';
 import { InspectionNotifications } from '../../../src/core/inspection-notifications.js';
 import { ChartSession } from '../../../src/core/session.js';
@@ -18,10 +24,40 @@ import { HierarchyInteraction } from '../../../src/families/hierarchy/interactio
 import { compileTrace, createTraceView, type CompiledTrace } from '../../../src/families/trace.js';
 
 describe('interaction transactions', () => {
+  it("uses each channel's fixed public delivery order regardless of enqueue order", () => {
+    const interaction = new Interaction();
+    const delivered: string[] = [];
+    interaction.batch(() => {
+      for (const [name, phase] of [
+        ['ready', readyPhase],
+        ['state', viewStatePhase],
+        ['viewport', viewportPhase],
+        ['reading', readingPhase],
+        ['controls', controlsPhase]
+      ] as const) {
+        interaction.report(
+          channel(false, Object.is, phase),
+          true,
+          () => true,
+          () => delivered.push(name)
+        );
+      }
+      interaction.effect(() => delivered.push('presentation'));
+    });
+    expect(delivered).toEqual([
+      'presentation',
+      'controls',
+      'reading',
+      'viewport',
+      'state',
+      'ready'
+    ]);
+  });
+
   it('deduplicates acknowledgements and finishes each broadcast before its nested successor', () => {
     const interaction = new Interaction();
     let state = 0;
-    const reports = interaction.channel<number>(0, Object.is);
+    const reports = channel<number>(0, Object.is);
     const early: number[] = [],
       late: number[] = [];
     const commit = (value: number) =>
@@ -117,7 +153,7 @@ describe('interaction transactions', () => {
     vi.useFakeTimers();
     try {
       const interaction = new Interaction();
-      const reports = interaction.channel<number>(0, Object.is);
+      const reports = channel<number>(0, Object.is);
       let value = 0;
       const deliver = (next: number) => {
         value = next;
@@ -145,16 +181,14 @@ describe('interaction transactions', () => {
   it('orders geometry, controls and readings before a viewport report, discarding a superseded window', () => {
     const interaction = new Interaction();
     let state = 1;
-    const reports = interaction.channel<number>(0, Object.is);
+    const reports = channel<number>(0, Object.is, viewportPhase);
     const sent: number[] = [];
     interaction.batch(() => {
       interaction.report(
         reports,
         1,
         () => state === 1,
-        (value) => sent.push(value),
-        false,
-        3
+        (value) => sent.push(value)
       );
       interaction.effect(
         () => {
@@ -163,13 +197,11 @@ describe('interaction transactions', () => {
             reports,
             2,
             () => state === 2,
-            (value) => sent.push(value),
-            false,
-            3
+            (value) => sent.push(value)
           );
         },
         {},
-        2
+        readingPhase
       );
     });
     expect(sent).toEqual([2]);

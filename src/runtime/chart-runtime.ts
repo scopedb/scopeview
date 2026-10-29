@@ -1,5 +1,5 @@
 import { ownsInspectionDismissal } from './inspection-input.js';
-import { interactionFor, claimInteraction } from '../core/interaction.js';
+import { interactionFor, claimInteraction, readingPhase } from '../core/interaction.js';
 import { readingState, releaseReading } from '../core/reading-state.js';
 import { ChartSession } from '../core/session.js';
 import { RangeSelectionSession, type RangeSelectionBinding } from '../core/range.js';
@@ -489,7 +489,7 @@ export class ChartRuntime<Source = ResultRow>
         this.options.onInspect?.(this.session.active, null, this.session.pinned);
       },
       {},
-      2
+      readingPhase
     );
   }
   protected release() {

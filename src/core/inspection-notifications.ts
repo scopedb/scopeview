@@ -1,4 +1,4 @@
-import type { InteractionChannel, Interaction } from './interaction.js';
+import { channel, type InteractionChannel, type Interaction } from './interaction.js';
 import type { ChartInteraction } from './scene.js';
 
 export type InspectionChannel = 'inspect' | 'select';
@@ -59,8 +59,8 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
     this.#read = read;
     this.#interaction = interaction;
     this.#reports = {
-      inspect: interaction.channel(empty, same),
-      select: interaction.channel(empty, same)
+      inspect: channel(empty, same),
+      select: channel(empty, same)
     };
   }
 

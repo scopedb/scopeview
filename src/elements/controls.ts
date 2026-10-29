@@ -1,4 +1,4 @@
-import type { Interaction } from '../core/interaction.js';
+import { controlsPhase, type Interaction } from '../core/interaction.js';
 import type { ComponentOptions, ScopeChartAction } from '../families/component-options.js';
 export type { ScopeChartAction } from '../families/component-options.js';
 
@@ -107,7 +107,7 @@ export class ControlEvents {
         );
       },
       this.#key,
-      1
+      controlsPhase
     );
   }
 }

@@ -1,4 +1,4 @@
-import { interactionFor } from '../core/interaction.js';
+import { interactionFor, readingPhase } from '../core/interaction.js';
 import { readingState } from '../core/reading-state.js';
 import { ReadingSession } from '../core/reading-session.js';
 import type { ChartInteraction, ChartScene } from '../core/scene.js';
@@ -101,7 +101,7 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
         this.options.onInspect?.(this.session.active, null, this.session.pinned);
       },
       {},
-      2
+      readingPhase
     );
   }
   protected release() {

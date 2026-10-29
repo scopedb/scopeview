@@ -1,6 +1,14 @@
 type Effect = readonly [run: () => void, current: (() => boolean) | undefined];
 const nonempty = (queue?: ReadonlyMap<object, Effect>) => queue?.size;
 
+// Fixed compatibility order, not caller-defined scheduling priorities.
+export const controlsPhase = 1,
+  readingPhase = 2,
+  viewportPhase = 3,
+  viewStatePhase = 4,
+  readyPhase = 5;
+type NotificationPhase = 1 | 2 | 3 | 4 | 5;
+
 /** One commit/effect boundary per chart. State transitions never call observers. */
 export class Interaction {
   declare reading?: unknown;
@@ -18,7 +26,12 @@ export class Interaction {
   }
 
   /** A key coalesces obsolete effects. A broadcast always runs to completion. */
-  effect(run: () => void, key: object = {}, phase = 0, current?: () => boolean): boolean {
+  effect(
+    run: () => void,
+    key: object = {},
+    phase: 0 | NotificationPhase = 0,
+    current?: () => boolean
+  ): boolean {
     if (current && !current()) return false;
     this.#work[phase] ??= new Map();
     this.#work[phase].set(key, [run, current]);
@@ -26,16 +39,12 @@ export class Interaction {
     return true;
   }
 
-  channel<T>(value: T, same: (a: T, b: T) => boolean): InteractionChannel<T> {
-    return { value, same };
-  }
   report<T>(
     channel: InteractionChannel<T>,
     value: T,
     current: () => boolean,
     deliver: (value: T) => void,
-    force = false,
-    phase = 2
+    force = false
   ): boolean {
     const ready = () => current() && (force || !channel.same(channel.value, value));
     return this.effect(
@@ -44,7 +53,7 @@ export class Interaction {
         deliver(value);
       },
       channel,
-      phase,
+      channel.phase,
       ready
     );
   }
@@ -83,6 +92,16 @@ export class Interaction {
 export interface InteractionChannel<T> {
   value: T;
   same(a: T, b: T): boolean;
+  readonly phase: NotificationPhase;
+}
+
+/** A channel owns its published value, comparison and fixed delivery phase. */
+export function channel<T>(
+  value: T,
+  same: (a: T, b: T) => boolean,
+  phase: NotificationPhase = readingPhase
+): InteractionChannel<T> {
+  return { value, same, phase };
 }
 
 // Public session objects are facades; sharing a session never duplicates its state owner.

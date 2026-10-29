@@ -1,7 +1,8 @@
-import { Interaction } from '../../../src/core/interaction.js';
+import { Interaction, controlsPhase } from '../../../src/core/interaction.js';
 import { describe, expect, it, vi } from 'vitest';
 import {
   InspectionNotifications,
+  type InspectionChannel,
   type InspectionState
 } from '../../../src/core/inspection-notifications.js';
 import type { ChartInteraction } from '../../../src/index.js';
@@ -28,6 +29,75 @@ function fixture() {
 }
 
 describe('inspection notifications', () => {
+  it.each([
+    'inspect',
+    'select'
+  ] as const)('preserves fresh %s-first order and independently coalesces nested channel values', (first: InspectionChannel) => {
+    const other = first === 'inspect' ? 'select' : 'inspect';
+    const { state } = fixture();
+    const interaction = new Interaction();
+    const notifications = new InspectionNotifications(() => state, interaction);
+    const seen: string[] = [];
+    const emit = () => {
+      const captured = notifications.capture();
+      for (const channel of [first, other] as const)
+        captured.emit(channel, (value) => {
+          seen.push(`${channel}:${value.target?.key}`);
+          if (channel === first && value.target?.key === 'a') {
+            state.inspect.target = state.select.target = target('b');
+            emit();
+          }
+        });
+    };
+    interaction.batch(emit);
+    expect(seen[0]).toBe(`${first}:a`);
+    expect(seen.slice(1).sort()).toEqual(['inspect:b', 'select:b']);
+    expect(seen).not.toContain(`${other}:a`);
+
+    // With no nested command, both adapters preserve their original enqueue order.
+    const stable: InspectionChannel[] = [];
+    state.snapshot = {};
+    interaction.batch(() => {
+      const captured = notifications.capture();
+      for (const channel of [first, other] as const)
+        captured.emit(channel, () => stable.push(channel));
+    });
+    expect(stable).toEqual([first, other]);
+  });
+
+  it('publishes captured readings while synchronous getters expose a nested command immediately', () => {
+    const interaction = new Interaction();
+    const state = { snapshot: {}, inspect: { target: target('a') }, select: { target: null } };
+    const notifications = new InspectionNotifications(() => state, interaction);
+    const seen: string[] = [];
+    const publish = (key: string) =>
+      interaction.batch(() => {
+        state.inspect.target = target(key);
+        notifications.capture().emit('inspect', broadcast);
+      });
+    const broadcast = (value: { target: ChartInteraction<string> | null }) => {
+      seen.push(`first:${value.target?.key}/${state.inspect.target.key}`);
+      if (value.target?.key === 'a') {
+        publish('b');
+        seen.push(`after:${value.target.key}/${state.inspect.target.key}`);
+      }
+      seen.push(`second:${value.target?.key}/${state.inspect.target.key}`);
+    };
+    publish('a');
+    expect(seen).toEqual(['first:a/a', 'after:a/b', 'second:a/b', 'first:b/b', 'second:b/b']);
+  });
+
+  it('coalesces pending explicit reading input as state rather than an action history', () => {
+    const { state, deliver, sent } = fixture();
+    const interaction = new Interaction();
+    const reports = new InspectionNotifications(() => state, interaction);
+    interaction.batch(() => {
+      reports.capture().emit('inspect', deliver, true);
+      reports.capture().emit('inspect', deliver, true);
+    });
+    expect(sent).toEqual(['a']);
+  });
+
   it('deduplicates geometry changes and refreshes exact snapshot, series and pin identities', () => {
     const { state, notifications, deliver, sent } = fixture();
     notifications.capture().emit('select', deliver);
@@ -212,7 +282,7 @@ describe('inspection notifications', () => {
           notifications.capture().emit('select', deliver);
         },
         {},
-        1
+        controlsPhase
       );
     });
     expect(sent).toEqual([]);

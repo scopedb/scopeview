@@ -11,7 +11,13 @@ import { prepareAggregateValues } from '../families/metrics/prepared.js';
 import { legendReadings } from '../families/metrics/readings.js';
 import type { ChartRenderer } from './plot-contract.js';
 import type { ChartInteraction, Inspect, Position } from '../core/scene.js';
-import { interactionFor } from '../core/interaction.js';
+import {
+  channel,
+  interactionFor,
+  readingPhase,
+  viewStatePhase,
+  readyPhase
+} from '../core/interaction.js';
 import {
   restoredKey,
   restoreReading,
@@ -135,15 +141,13 @@ export class ScopeChartElement extends HTMLElement {
     }),
     interactionFor(this.#session)
   );
-  #visibilityReports = interactionFor(this.#session).channel<string[]>(
-    [],
-    (a, b) => JSON.stringify(a) === JSON.stringify(b)
-  );
+  #visibilityReports = channel<string[]>([], (a, b) => JSON.stringify(a) === JSON.stringify(b));
   #readingEffect = {};
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
-  #stateReports = interactionFor(this.#session).channel<ViewStateChangeDetail | null>(
+  #stateReports = channel<ViewStateChangeDetail | null>(
     null,
-    (a, b) => JSON.stringify(a?.state) === JSON.stringify(b?.state)
+    (a, b) => JSON.stringify(a?.state) === JSON.stringify(b?.state),
+    viewStatePhase
   );
   #linkedHighlight: LinkedHighlight | null = null;
   #stateTransaction = false;
@@ -288,9 +292,7 @@ export class ScopeChartElement extends HTMLElement {
       () => snapshot === this.#compiled && key === JSON.stringify(this.viewState),
       (detail) => {
         this.#dispatch('scope-view-state-change', detail!);
-      },
-      false,
-      4
+      }
     );
   }
   /** Ephemeral trusted binding; never serialized into a chart document. */
@@ -527,16 +529,18 @@ export class ScopeChartElement extends HTMLElement {
         if (
           snapshot === this.#compiled &&
           (name !== 'scope-ready' ||
-            (this.isConnected &&
+            (snapshot &&
+              this.isConnected &&
               !this.loading &&
               !this.error &&
               !this.#error &&
-              scene === this.#plot?.model))
+              scene === this.#plot?.model &&
+              (snapshot.config.mapping.kind === 'aggregate' || sceneSnapshot(scene) === snapshot)))
         )
           this.#dispatch(name, detail);
       },
       {},
-      name === 'scope-ready' ? 5 : 2
+      name === 'scope-ready' ? readyPhase : readingPhase
     );
   }
   #dispatch<K extends keyof ScopeChartEventDetails>(name: K, detail: ScopeChartEventDetails[K]) {
@@ -697,13 +701,6 @@ export class ScopeChartElement extends HTMLElement {
           if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)
             return;
           this.#session.setModel(model);
-          if (this.#session.active) {
-            this.#showInspection(null);
-          } else {
-            plot.focus(null);
-            hideInspection(this.#el('.tooltip'));
-            this.#el('.inspect').removeAttribute('data-active');
-          }
           this.#el('.viewport').setAttribute(
             'aria-label',
             title || plot.model?.ariaLabel || 'ScopeDB chart'
@@ -713,6 +710,7 @@ export class ScopeChartElement extends HTMLElement {
         }
         const batch = this.#notifications.capture();
         this.#status('ready', null);
+        if (this.#plot) this.#showInspection(null, false, true, batch);
         this.#reportInspection(batch);
         if (compiled !== this.#compiled || !this.isConnected) return;
         this.#stateChanged(this.#stateReason);
@@ -844,12 +842,7 @@ export class ScopeChartElement extends HTMLElement {
       this.#selectedNeighbors = [];
       this.#session.clearInspection();
       const batch = this.#notifications.capture();
-      interactionFor(this.#session).effect(() => {
-        this.#plot?.focus(null);
-        this.#el('.inspect').removeAttribute('data-active');
-        hideInspection(this.#el('.tooltip'));
-        this.#el('.live').textContent = '';
-      }, this.#readingEffect);
+      this.#showInspection(null, false, false, batch);
       this.#reportInspection(batch);
       this.#stateChanged(reason);
     });
@@ -882,32 +875,49 @@ export class ScopeChartElement extends HTMLElement {
         inspectionFocus(this.#root).focus({
           preventScroll: true
         });
-      if (batch.current('inspect'))
-        this.#showInspection(position, keyboard, position !== null || previousKey !== value.key);
+      this.#showInspection(
+        position,
+        keyboard,
+        position !== null || previousKey !== value.key,
+        batch
+      );
       this.#reportInspection(batch, true);
       this.#stateChanged();
     });
   }
-  #showInspection(position: Position | null, keyboard = false, place = true) {
-    const batch = this.#notifications.capture();
-    interactionFor(this.#session).effect(() => {
-      if (batch.current('inspect')) this.#presentInspection(position, keyboard, place);
-    }, this.#readingEffect);
-  }
-  #presentInspection(position: Position | null, keyboard: boolean, place: boolean) {
-    const value = this.#session.active;
-    if (!value) return;
-    this.#plot?.focus(
-      value,
-      this.#session.pinned,
-      this.#session.series,
-      this.#session.selected?.key ?? null
+  #showInspection(
+    position: Position | null,
+    keyboard = false,
+    place = true,
+    batch = this.#notifications.capture()
+  ) {
+    interactionFor(this.#session).effect(
+      () => this.#presentInspection(batch, position, keyboard, place),
+      this.#readingEffect,
+      0,
+      () => batch.current('inspect')
     );
+  }
+  #presentInspection(
+    batch: ReturnType<InspectionNotifications<ResultRow, CompiledChart>['capture']>,
+    position: Position | null,
+    keyboard: boolean,
+    place: boolean
+  ) {
+    const { target: value, pinned, series } = batch.state.inspect;
+    this.#plot?.focus(value, pinned, series, this.#session.selected?.key ?? null);
+    if (!batch.current('inspect')) return;
     this.#el('.inspect').toggleAttribute('data-active', this.#session.selected !== null);
     const tooltip = this.#el('.tooltip');
+    if (!value) {
+      hideInspection(tooltip);
+      if (batch.current('inspect')) this.#el('.live').textContent = '';
+      return;
+    }
     if (this.#ui.tooltip === false) {
       hideInspection(tooltip);
-      if (keyboard) this.#el('.live').textContent = inspectionText(value);
+      if (keyboard && batch.current('inspect'))
+        this.#el('.live').textContent = inspectionText(value);
       return;
     }
     const neighbors = (
@@ -919,16 +929,17 @@ export class ScopeChartElement extends HTMLElement {
       return target ? [target] : [];
     });
     dockInspection(tooltip, this.#session.pinned && neighbors.length > 1);
+    if (!batch.current('inspect')) return;
     renderInspection(
       tooltip,
       value,
-      this.#session.pinned,
+      pinned,
       () => {
         this.#clearInspection();
         inspectionFocus(this.#root).focus();
       },
       {
-        series: this.#session.series,
+        series,
         locked: this.#session.tooltipLocked,
         onLock: () => {
           this.tooltipLocked = !this.tooltipLocked;
@@ -937,8 +948,9 @@ export class ScopeChartElement extends HTMLElement {
         onChoose: (key) => this.#chooseObservation(key, neighbors)
       }
     );
-    if (place || keyboard) this.#placeTooltip(position);
-    if (keyboard) this.#el('.live').textContent = inspectionText(value);
+    if (!batch.current('inspect')) return;
+    if (place || keyboard) this.#placeTooltip(position, batch);
+    if (keyboard && batch.current('inspect')) this.#el('.live').textContent = inspectionText(value);
   }
   #chooseObservation(key: string, neighbors: readonly ChartInteraction[]) {
     if (key === this.#session.selected?.key) return;
@@ -949,11 +961,13 @@ export class ScopeChartElement extends HTMLElement {
       .find((button) => button.dataset.key === key)
       ?.focus({ preventScroll: true });
   }
-  #placeTooltip(position: Position | null = null) {
-    if (!this.#session.active || this.#el('.tooltip').hidden) return;
+  #placeTooltip(position: Position | null = null, batch = this.#notifications.capture()) {
+    const value = batch.state.inspect.target;
+    if (!value || this.#el('.tooltip').hidden) return;
     const tooltip = this.#el('.tooltip');
     if (tooltip.classList.contains('docked')) return;
-    const anchor = position ?? this.#plot?.anchor(this.#session.active!) ?? { x: 0, y: 0 };
+    const anchor = position ?? this.#plot?.anchor(value) ?? { x: 0, y: 0 };
+    if (!batch.current('inspect')) return;
     const canvas = this.#el('.canvas').getBoundingClientRect();
     const rect = this.#plot?.model?.rect;
     positionInspection(

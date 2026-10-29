@@ -14,7 +14,15 @@ import {
 import type { ViewportState } from '../core/viewport.js';
 import { ChartSession } from '../core/session.js';
 import { readingState, restoredKey, shareReading, releaseReading } from '../core/reading-state.js';
-import { interactionFor, shareInteraction } from '../core/interaction.js';
+import {
+  channel,
+  interactionFor,
+  shareInteraction,
+  readingPhase,
+  viewportPhase,
+  viewStatePhase,
+  readyPhase
+} from '../core/interaction.js';
 import { HierarchyInteraction } from '../families/hierarchy/interaction.js';
 import type { Entity, EntityDocument, Hierarchy } from '../families/hierarchy/model.js';
 import {
@@ -149,15 +157,13 @@ export class HierarchyElement<
       select: { target: project(this.#session.selected) }
     };
   }, this.#kernel);
-  #viewportReports = this.#kernel.channel({ start: 0, end: 1, scrollOffset: 0 }, sameViewport);
-  #stateReports = this.#kernel.channel<ViewStateChangeDetail | null>(
+  #viewportReports = channel({ start: 0, end: 1, scrollOffset: 0 }, sameViewport, viewportPhase);
+  #stateReports = channel<ViewStateChangeDetail | null>(
     null,
-    (a, b) => JSON.stringify(a?.state) === JSON.stringify(b?.state)
+    (a, b) => JSON.stringify(a?.state) === JSON.stringify(b?.state),
+    viewStatePhase
   );
-  #collapseReports = this.#kernel.channel<string[]>(
-    [],
-    (a, b) => JSON.stringify(a) === JSON.stringify(b)
-  );
+  #collapseReports = channel<string[]>([], (a, b) => JSON.stringify(a) === JSON.stringify(b));
   #readingEffect = {};
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
   #stateTransaction = false;
@@ -286,9 +292,7 @@ export class HierarchyElement<
       () => snapshot === this.#compiled && key === JSON.stringify(this.viewState),
       (detail) => {
         this.#dispatch('scope-view-state-change', detail!);
-      },
-      false,
-      4
+      }
     );
   }
   get loading() {
@@ -478,7 +482,7 @@ export class HierarchyElement<
           this.#dispatch(type, detail);
       },
       {},
-      type === 'scope-ready' ? 5 : 2
+      type === 'scope-ready' ? readyPhase : readingPhase
     );
   }
   #dispatch<K extends keyof HierarchyEventDetails<Source, Context>>(
@@ -509,9 +513,7 @@ export class HierarchyElement<
         snapshot === this.#compiled &&
         report === this.#interaction.report &&
         sameViewport(value, this.viewport),
-      (viewport) => this.#dispatch('scope-viewport-change', { ...viewport }),
-      false,
-      3
+      (viewport) => this.#dispatch('scope-viewport-change', { ...viewport })
     );
   }
   #schedule() {

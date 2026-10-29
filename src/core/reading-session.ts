@@ -74,16 +74,16 @@ export class ReadingSession<Source = ResultRow> {
   ): boolean {
     const state = editReading<Source>(this);
     const value = key && state.model?.interactionByKey.has(key) ? key : null;
-    state.hovered = pin || keyboard ? null : value;
-    if (state.keyboard && key === null && !pin && !keyboard) return false;
+    const explicit = pin || keyboard;
+    state.hovered = explicit ? null : value;
+    if (state.keyboard && key === null && !explicit) return false;
     if (pin && value === state.selected) clearReading(state);
     else {
-      if (pin || keyboard) {
+      if (explicit) {
         state.selected = pin ? value : null;
         state.selectedSeries = pin ? series : null;
-        state.intent = {};
       }
-      if (state.active !== (value ?? state.selected)) state.intent = {};
+      if (explicit || state.active !== (value ?? state.selected)) state.intent = {};
       state.active = value ?? state.selected;
       state.series = value ? series : state.selectedSeries;
       state.keyboard = keyboard;
