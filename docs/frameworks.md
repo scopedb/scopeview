@@ -16,8 +16,7 @@ This component keeps the same chart instance across document updates. Its cleanu
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { createChart, type ChartView } from '@scopedb/scopeview/chart';
-import type { ChartDocumentInput } from '@scopedb/scopeview';
+import { createChart, type ChartDocumentInput, type ChartView } from '@scopedb/scopeview/chart';
 
 export function Chart({ document: input }: { document: ChartDocumentInput }) {
   const host = useRef<HTMLDivElement>(null);
@@ -47,8 +46,7 @@ Effects run in the browser after mounting, so the bound container is available b
 ```svelte
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { createChart, type ChartView } from '@scopedb/scopeview/chart';
-  import type { ChartDocumentInput } from '@scopedb/scopeview';
+  import { createChart, type ChartDocumentInput, type ChartView } from '@scopedb/scopeview/chart';
 
   let { document: input }: { document: ChartDocumentInput } = $props();
   let host = $state<HTMLDivElement>();
