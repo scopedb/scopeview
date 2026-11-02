@@ -23,7 +23,6 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
   #view: HierarchyView<Source> | null = null;
   #collapsed = new Set<string>();
   #window: ViewportState = { start: 0, end: 1, scrollOffset: 0 };
-  #restore: ViewportState | null = null;
   #focus: Focus | null = null;
   #height: number | null = null;
   #axes: AxisMode = 'full';
@@ -40,10 +39,9 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
     this.viewport = new OwnedViewport(
       () => ({ ...this.#window }),
       (change) => {
-        const viewport = this.#geometry(change);
-        this.#window = viewport;
+        this.#window = this.#geometry(change);
         this.#report = {};
-        this.#focus = this.#restore = null;
+        this.#focus = null;
       }
     );
   }
@@ -55,9 +53,6 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
   }
   get collapsed(): ReadonlySet<string> {
     return this.#collapsed;
-  }
-  get desiredViewport() {
-    return { ...(this.#restore ?? this.#window) };
   }
   get report() {
     return this.#report;
@@ -72,9 +67,9 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
       contentHeight: (this.#view?.rowCount ?? 0) * (this.#view?.rowHeight ?? 24),
       visibleHeight: this.#height === null ? 0 : hierarchyViewportHeight(this.#height, this.#axes)
     });
-    viewport.set(this.#restore ?? this.#window);
+    viewport.set(this.#window);
     change?.(viewport);
-    return { ...viewport.state };
+    return viewport.state;
   }
   #adopt() {
     if (this.#active) this.session.setModel(this.#view?.navigation ?? null);
@@ -87,7 +82,7 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
     this.#view = view;
     this.#collapsed = collapsed;
     this.#window = { start: 0, end: 1, scrollOffset: 0 };
-    this.#restore = this.#focus = this.#report = null;
+    this.#focus = this.#report = null;
     this.#adopt();
   }
   collapse(collapsed: Iterable<string>) {
@@ -108,7 +103,6 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
     this.#collapsed = collapsed;
     this.#view = view;
     this.#window = { ...state.viewport };
-    this.#restore = { ...state.viewport };
     this.#focus = this.#report = null;
     this.#adopt();
     restoreReading(this.session, state.pinnedKey);
@@ -146,7 +140,6 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
       id && this.#view?.byId.has(id)
         ? { id, snapshot: this.#compiled!, intent: readingState(this.session).intent }
         : null;
-    this.#restore = null;
     // A previous valid measurement positions hidden charts provisionally.
     this.#position(false);
   }
@@ -184,7 +177,6 @@ export class HierarchyInteraction<Source extends Entity, Document extends Compil
     )
       this.#report = {};
     this.#window = viewport;
-    this.#restore = null;
     if (measured || !current) this.#focus = null;
   }
   dismiss() {

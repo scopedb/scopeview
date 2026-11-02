@@ -244,7 +244,7 @@ export class HierarchyElement<
         this.#interaction.replace(null);
         this.#error = error instanceof Error ? error.message : 'Invalid document.';
       }
-      if (previous && this.#compiled) this.#applyState(previous);
+      if (previous && this.#compiled) this.#interaction.restore(previous);
       this.#stateReason = 'document';
       this.#stateTransaction = false;
       this.#schedule();
@@ -255,7 +255,7 @@ export class HierarchyElement<
       version: 1,
       kind: this.kind,
       pinnedKey: restoredKey(this.#session) ?? this.#session.selected?.key ?? null,
-      viewport: this.#interaction.desiredViewport,
+      viewport: this.#viewport.state,
       collapsed: this.collapsed.sort()
     };
   }
@@ -266,13 +266,10 @@ export class HierarchyElement<
         throw new TypeError(`Expected ${this.kind} view state.`);
       this.#notifications.invalidate();
       this.#kernel.effect(() => this.#input?.cancel());
-      this.#applyState(state);
+      this.#interaction.restore(state);
       this.#stateReason = 'restore';
       this.refresh();
     });
-  }
-  #applyState(state: HierarchyViewState) {
-    this.#interaction.restore(state);
   }
   get linkedHighlight() {
     return this.#linkedHighlight && { ...this.#linkedHighlight };
@@ -696,7 +693,7 @@ export class HierarchyElement<
         if (saved) this.#stateTransaction = true;
         this.#clearInspection();
         this.#dispose();
-        if (saved) this.#applyState(saved);
+        if (saved) this.#interaction.restore(saved);
         this.#stateTransaction = false;
         this.#el('.tree-scroll').hidden = true;
         this.#el('.summary').hidden = true;
