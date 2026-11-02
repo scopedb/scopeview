@@ -29,6 +29,8 @@ Each mounted chart has one DOM-free `Interaction` in `src/core/interaction.ts`. 
 
 Canvas providers are consumed once at runtime construction. A borrowed facade detaches before disposal, so a retained old session cannot write into the component's next lifecycle. The scene snapshot registry is a separate frame projection, not another selection owner.
 
+The metric handle owns transitions between Canvas and HTML aggregates. It commits empty readings and queues the internal view replacement after those readings in the same pump. A newer update or public disposal invalidates that replacement. Internal retirement therefore preserves eligible clears, while public headless disposal remains silent; the renderer does not decide the lifetime of the host's subscription.
+
 ## Commit, project and publish
 
 A command runs in `Interaction.batch()`. State reducers finish before queued effects or reports invoke host code. A nested callback command can commit immediately; its projection and reports wait for the current delivery to return. There is no older semantic write left after that command's notifications.
@@ -57,6 +59,8 @@ Ordinary work settles synchronously. The current pump yields to a timer task aft
 Newer viewport, dismissal, restoration, collapse or document commands cancel obsolete positioning. Loading with an unavailable runtime preserves the existing saved-state policy; it does not behave like an initialized hidden chart. Before-first-paint, loading and disconnection keep their compatibility fixtures. One explicit Canvas Escape owner accepts dismissal, including noncancelable events, while runtime and shell fallback skip that Canvas path so later listeners can restore a newer state.
 
 Runtime layout revisions and semantic model versions reject stale custom layout results and failures. Document replacement commits the new source and clears controlled bindings before cleanup callbacks run. Ready additionally validates the completed frame, current source, connection and loading/error state. Headless disposal cancels pending callbacks silently; component disconnection preserves final clears. Already retained contexts remain readable after either lifecycle ends.
+
+The built-in metric renderer records its completed source independently of scene object identity. A wrapper can reuse the scene object without losing that record, and zero-sized measurements retain the old completed source. Legacy component renderers that implement only the existing `update()`/`model` interface keep successful synchronous update as their completion boundary. The shell records source ownership after that boundary; it does not require a fresh scene object or change the public renderer interface.
 
 ## Verification and package boundaries
 

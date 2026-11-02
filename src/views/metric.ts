@@ -7,6 +7,7 @@ import { createMetricPlot } from './metric-plot.js';
 import { scalarView, type ScalarValue } from './scalar.js';
 import type { ViewOptions, ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
+import { interactionFor, readingPhase } from '../core/interaction.js';
 
 /** The general entry alone owns transitions between HTML aggregates and plotted metrics. */
 export function createMetric(
@@ -42,9 +43,10 @@ export function createMetric(
       next.config.mapping.kind === 'aggregate'
         ? null
         : createMetricPlot(host, next, nextLayout, { ...options, theme });
-    return plot?.view ?? scalarView(host, scalarValues(next), { theme });
+    const view = plot?.view ?? scalarView(host, scalarValues(next), { theme });
+    interactionHosts.set(handle, interactionHosts.get(view));
+    return view;
   };
-  inner = mount(compiled, layout);
   const handle: ChartView = {
     update(document) {
       if (disposed) throw new Error('This chart has been disposed.');
@@ -64,22 +66,28 @@ export function createMetric(
       interactionHosts.delete(handle);
     }
   };
-  function bind() {
-    interactionHosts.set(handle, interactionHosts.get(inner));
-  }
   function replace(next: CompiledChart, nextLayout?: MetricLayout) {
     if (disposed) throw new Error('This chart has been disposed.');
     const current = ++revision;
     if ((next.config.mapping.kind !== 'aggregate') !== !!plot) {
-      plot?.view.clearInspection();
-      if (disposed || current !== revision) return;
-      const theme = inner.theme;
-      inner.dispose();
-      inner = mount(next, nextLayout ?? layout, theme);
-      bind();
+      const interaction = interactionFor(plot?.view.runtime.session ?? handle);
+      interaction.batch(() => {
+        plot?.view.clearInspection();
+        // Retire the old view only after its final readings finish broadcasting.
+        interaction.effect(
+          () => {
+            const theme = inner.theme;
+            inner.dispose();
+            inner = mount(next, nextLayout ?? layout, theme);
+          },
+          handle,
+          readingPhase,
+          () => current === revision
+        );
+      });
     } else if (plot) plot.replace(next, nextLayout);
     else inner.update(scalarValues(next));
   }
-  bind();
+  inner = mount(compiled, layout);
   return { view: handle, replace };
 }

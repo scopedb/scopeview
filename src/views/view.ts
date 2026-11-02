@@ -58,15 +58,15 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
       ...input,
       onInspect: (_target, position) => {
         this.#position = position;
-        this.#reading();
+        this.#report();
       },
       onRender: () => {
         if (this.element.dataset.state === 'error') this.#showStatus(this.#statusMessage);
         this.element.dataset.state = 'ready';
-        this.#reading();
+        this.#report();
       },
       onError: (error) => {
-        this.#reading();
+        this.#report();
         this.#showStatus('Unable to render chart.');
         this.element.dataset.state = 'error';
         options.onError?.(error);
@@ -108,15 +108,11 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
     window.addEventListener(
       'scroll',
       () => {
-        if (this.runtime.session.keyboardInspection) this.#reading();
+        if (this.runtime.session.keyboardInspection) this.#report();
         else this.hideReading();
       },
       { capture: true, signal }
     );
-  }
-  #reading() {
-    this.#readingVisible = true;
-    this.#report();
   }
   #presentReading(batch: ReturnType<InspectionNotifications<Source>['capture']>) {
     this.runtime.focus(this.runtime.session.active);
@@ -135,7 +131,8 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
       else hideInspection(this.#tooltip);
     }
   }
-  #report() {
+  #report(visible = true) {
+    this.#readingVisible = visible;
     const batch = this.#notifications.capture();
     interactionFor(this.runtime.session).effect(
       () => this.#presentReading(batch),
@@ -163,8 +160,7 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
       this.#notifications.invalidate(clear ? undefined : 'inspect');
       if (clear) this.runtime.session.clearInspection();
       this.#position = null;
-      this.#readingVisible = clear;
-      this.#report();
+      this.#report(clear);
     });
   }
   status(message: string | null) {
@@ -189,7 +185,6 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
     if (this.disposed) return;
     this.#notifications.dispose();
     this.disposed = true;
-    this.hideReading();
     for (const cleanup of this.#cleanups) cleanup();
     this.runtime.dispose();
     interactionHosts.delete(this);

@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import type { InspectionContext } from '../../src/index.js';
+import type { ScopeInspectionDetail } from '../../src/element.js';
 import { inspectionEntries, inspectionValue } from './fixtures/inspection-matrix.js';
 
 test('metric presentation rejects an anchor result after its callback dismisses the reading', async ({
@@ -22,26 +23,18 @@ test('metric presentation rejects an anchor result after its callback dismisses 
         const create = await super.renderer();
         return (...args: Parameters<typeof create>) => {
           const renderer = create(...args);
-          return new Proxy(renderer, {
-            get(target, key) {
-              if (key === 'anchor')
-                return (...args: Parameters<typeof renderer.anchor>) => {
-                  const anchor = target.anchor(...args);
-                  if (!cancelled) {
-                    cancelled = true;
-                    tooltip.style.left = '19px';
-                    tooltip.style.top = '23px';
-                    outside.focus();
-                  }
-                  return anchor;
-                };
-              const value = Reflect.get(target, key, target);
-              return typeof value === 'function' ? value.bind(target) : value;
-            },
-            set(target, key, value) {
-              return Reflect.set(target, key, value, target);
+          const anchor = renderer.anchor.bind(renderer);
+          renderer.anchor = (...args) => {
+            const position = anchor(...args);
+            if (!cancelled) {
+              cancelled = true;
+              tooltip.style.left = '19px';
+              tooltip.style.top = '23px';
+              outside.focus();
             }
-          });
+            return position;
+          };
+          return renderer;
         };
       }
     }
@@ -89,6 +82,128 @@ test('metric presentation rejects an anchor result after its callback dismisses 
   expect(result.live).toBe('');
   expect(result.keys.every((key) => key === null)).toBe(true);
 });
+
+for (const adapter of ['wrapped', 'legacy'] as const) {
+  test(`${adapter} renderer can reuse a scene while retaining completed-frame source ownership`, async ({
+    page
+  }) => {
+    await page.goto('/tests/browser/fixtures/blank.html');
+    const result = await page.evaluate(async (adapter) => {
+      const entry = '/src/element.ts';
+      const { ScopeChartElement }: typeof import('../../src/element.js') = await import(entry);
+      const fixture = '/tests/browser/fixtures/inspection-matrix.ts';
+      const { inspectionDocument }: typeof import('./fixtures/inspection-matrix.js') = await import(
+        fixture
+      );
+      let reused = false;
+      class ReusingChart extends ScopeChartElement {
+        protected override async renderer() {
+          const create = await super.renderer();
+          return (...args: Parameters<typeof create>) => {
+            const renderer = create(...args);
+            const update = renderer.update.bind(renderer);
+            renderer.update = (...args) => {
+              const previous = renderer.model;
+              update(...args);
+              if (previous && renderer.model && previous !== renderer.model) {
+                Object.assign(previous, renderer.model);
+                renderer.model = previous;
+                reused = true;
+              }
+            };
+            // A legacy adapter implements only the existing public renderer contract.
+            if (adapter === 'legacy')
+              return {
+                get model() {
+                  return renderer.model;
+                },
+                update: renderer.update,
+                anchor: renderer.anchor.bind(renderer),
+                focus: renderer.focus.bind(renderer),
+                dispose: renderer.dispose.bind(renderer),
+                linkedHighlight: null
+              };
+            return renderer;
+          };
+        }
+      }
+      customElements.define('scope-reusing-chart', ReusingChart);
+      const chart = new ReusingChart();
+      chart.style.cssText = 'width:600px;--scope-chart-height:240px';
+      const settle = async () => {
+        await document.fonts.ready;
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      };
+      const replace = (value: string) => {
+        chart.document = inspectionDocument(
+          { name: 'reusing', family: 'metric', surface: 'component' },
+          value
+        );
+      };
+      const initial = new Promise((resolve) =>
+        chart.addEventListener('scope-ready', resolve, { once: true })
+      );
+      document.body.append(chart);
+      replace('100');
+      await initial;
+      await settle();
+      const readings: ScopeInspectionDetail[] = [];
+      let ready = 0;
+      chart.addEventListener('scope-ready', () => ready++);
+      chart.addEventListener('scope-inspect', (event) => {
+        if (event.detail.key) readings.push(event.detail);
+      });
+      const inspect = () =>
+        chart
+          .shadowRoot!.querySelector('.viewport')!
+          .dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
+      inspect();
+      replace('200');
+      await settle();
+      inspect();
+      const visibleReady = ready;
+      let hiddenReady: number | null = null;
+      if (adapter === 'wrapped') {
+        chart.style.display = 'none';
+        await settle();
+        ready = 0;
+        replace('300');
+        await settle();
+        hiddenReady = ready;
+        const shown = new Promise((resolve) =>
+          chart.addEventListener('scope-ready', resolve, { once: true })
+        );
+        chart.style.display = '';
+        await shown;
+        inspect();
+      }
+      // Read retained contexts only after later updates, including reuse of the scene object.
+      return {
+        reused,
+        visibleReady,
+        hiddenReady,
+        readings: readings.map(({ rows, rowIndices, context }) => ({
+          rows,
+          rowIndices,
+          source: context?.rows,
+          snapshot: context?.snapshotId
+        }))
+      };
+    }, adapter);
+    expect(result.reused).toBe(true);
+    expect(result.visibleReady).toBeGreaterThan(0);
+    expect(result.hiddenReady).toBe(adapter === 'wrapped' ? 0 : null);
+    const values = adapter === 'wrapped' ? ['100', '200', '300'] : ['100', '200'];
+    expect(result.readings.map((reading) => reading.rows)).toEqual(
+      values.map((value) => [['a', value]])
+    );
+    for (const reading of result.readings) {
+      expect(reading.rowIndices).toEqual([0]);
+      expect(reading.source).toEqual(reading.rows);
+    }
+    expect(new Set(result.readings.map((reading) => reading.snapshot)).size).toBe(values.length);
+  });
+}
 
 for (const entry of inspectionEntries.filter((entry) => entry.surface === 'component')) {
   test.describe(entry.name, () => {

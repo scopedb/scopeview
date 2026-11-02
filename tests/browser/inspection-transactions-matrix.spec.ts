@@ -92,6 +92,63 @@ test('metric document cleanup observes committed data and cannot overwrite a nes
   expect(result.values).not.toContain('200');
 });
 
+for (const action of ['dispose', 'throw'] as const) {
+  test(`pending HTML replacement respects ${action} during its notification handoff`, async ({
+    page
+  }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.goto('/tests/browser/fixtures/blank.html');
+    const result = await page.evaluate(async (action) => {
+      const module = '/tests/browser/fixtures/inspection-matrix.ts';
+      const {
+        createInspectionFixture,
+        inspectionValue
+      }: typeof import('./fixtures/inspection-matrix.js') = await import(module);
+      const f = await createInspectionFixture({
+        name: 'retirement',
+        family: 'metric',
+        surface: 'direct',
+        module: 'chart'
+      });
+      f.pin();
+      let retiring = false;
+      f.hook = (notification) => {
+        if (notification.channel !== 'select') return;
+        if (!retiring && inspectionValue(notification.context) === '200') {
+          retiring = true;
+          f.view!.update({
+            version: 1,
+            data: { fields: [{ name: 'value', data_type: 'number' }], rows: [['7']] },
+            spec: { visualization: 'big-number', encoding: { values: ['value'] } }
+          });
+          if (action === 'dispose') {
+            f.events.length = 0;
+            f.dispose();
+          }
+        } else if (retiring && !notification.context && action === 'throw')
+          throw new Error('Retirement observer failure');
+      };
+      await f.replace('200');
+      await f.settle();
+      const element = f.host.querySelector('.scopeview-view');
+      return {
+        retiring,
+        mounted: !!element,
+        value: element?.shadowRoot?.querySelector('.value-number')?.textContent ?? null,
+        latest: f.latest,
+        events: f.events
+      };
+    }, action);
+    expect(result.retiring).toBe(true);
+    expect(errors).toEqual(action === 'throw' ? ['Retirement observer failure'] : []);
+    expect(result.mounted).toBe(action === 'throw');
+    expect(result.value).toBe(action === 'throw' ? '7' : null);
+    if (action === 'dispose') expect(result.events).toEqual([]);
+    else expect(result.latest).toEqual({ inspect: null, select: null });
+  });
+}
+
 for (const entry of inspectionEntries.filter(
   (entry) => entry.family === 'metric' && entry.surface === 'direct'
 )) {

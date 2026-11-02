@@ -294,6 +294,59 @@ for (const entry of inspectionEntries) {
     });
 
     if (entry.family === 'metric' && !entry.layout) {
+      for (const channel of ['inspect', 'select'] as const) {
+        test(`an HTML aggregate requested by ${channel} finishes clearing before retiring its plot`, async ({
+          page
+        }) => {
+          const result = await page.evaluate(async (channel) => {
+            const f = window.notificationFixture;
+            const module = '/tests/browser/fixtures/inspection-matrix.ts';
+            const { inspectionValue }: typeof import('./fixtures/inspection-matrix.js') =
+              await import(module);
+            f.pin();
+            let switched = false;
+            let transition: void | Promise<void> = undefined;
+            f.hook = (notification) => {
+              if (
+                switched ||
+                notification.channel !== channel ||
+                inspectionValue(notification.context) !== '200'
+              )
+                return;
+              switched = true;
+              f.events.length = 0;
+              const scalar = {
+                version: 1,
+                data: { fields: [{ name: 'value', data_type: 'number' }], rows: [['7']] },
+                spec: { visualization: 'big-number', encoding: { values: ['value'] } }
+              };
+              if (f.chart) f.chart.document = scalar;
+              else transition = f.view!.update(scalar);
+            };
+            await f.replace('200');
+            await f.settle();
+            await transition;
+            await f.settle();
+            const root = f.chart?.shadowRoot ?? f.host.querySelector('.scopeview-view')?.shadowRoot;
+            return {
+              switched,
+              canvas: !!root?.querySelector('canvas'),
+              value: root?.querySelector('.metric-value, .value-number')?.textContent,
+              latest: f.latest,
+              cleared: f.events.filter((event) => event.channel === 'select' && !event.context)
+                .length
+            };
+          }, channel);
+          expect(result).toEqual({
+            switched: true,
+            canvas: false,
+            value: '7',
+            latest: { inspect: null, select: null },
+            cleared: 1
+          });
+        });
+      }
+
       test('HTML aggregate transitions clear once and respect a replacement from the clear callback', async ({
         page
       }) => {
@@ -333,14 +386,21 @@ for (const entry of inspectionEntries) {
           key('Enter');
           f.events.length = 0;
           let replacement: Promise<void> | undefined;
+          let retiring: Promise<void> | undefined;
           let replacing = false;
           f.hook = (notification) => {
-            if (!replacing && notification.context === null) {
+            if (!retiring && notification.channel === 'select' && notification.context) {
+              f.events.length = 0;
+              retiring = aggregate();
+            } else if (retiring && !replacing && notification.context === null) {
               replacing = true;
+              f.events.length = 0;
               replacement = f.replace('300');
             }
           };
-          await aggregate();
+          await f.replace('200');
+          await f.settle();
+          await retiring;
           await replacement;
           await f.settle();
           key('Home');

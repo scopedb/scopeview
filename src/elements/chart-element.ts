@@ -9,7 +9,7 @@ import type { ChartDisplayType } from '../families/metrics/spec.js';
 import { compactFormat } from '../data/format.js';
 import { prepareAggregateValues } from '../families/metrics/prepared.js';
 import { legendReadings } from '../families/metrics/readings.js';
-import type { ChartRenderer } from './plot-contract.js';
+import { renderedSource, type ChartRenderer } from './plot-contract.js';
 import type { ChartInteraction, Inspect, Position } from '../core/scene.js';
 import {
   channel,
@@ -687,12 +687,12 @@ export class ScopeChartElement extends HTMLElement {
         } else {
           const plot = this.#plot;
           if (!plot) return;
-          const previousScene = plot.model;
           plot.update(compiled, this.#session.hidden, this.#ui.axes ?? 'full');
           if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)
             return;
-          if (plot.model && (plot.model !== previousScene || !sceneSnapshot(plot.model)))
-            captureScene(plot.model, compiled);
+          const snapshot =
+            renderedSource in plot ? (plot[renderedSource] as CompiledChart | null) : compiled;
+          if (plot.model && snapshot) captureScene(plot.model, snapshot);
           plot.linkedHighlight = this.#linkedHighlight;
           if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)
             return;
