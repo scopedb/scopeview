@@ -1,4 +1,4 @@
-import { channel, type InteractionChannel, type Interaction } from './interaction.js';
+import { channel, type Interaction } from './interaction.js';
 import type { ChartInteraction } from './scene.js';
 
 export type InspectionChannel = 'inspect' | 'select';
@@ -50,18 +50,16 @@ function same<Source>(a: ReportedReading<Source>, b: ReportedReading<Source>) {
 
 /** DOM-free delivery protocol shared by headless callbacks and component events. */
 export class InspectionNotifications<Source, Snapshot extends object = object> {
-  #reports: Record<InspectionChannel, InteractionChannel<ReportedReading<Source>>>;
+  #reports = {
+    inspect: channel<ReportedReading<Source>>(empty, same),
+    select: channel<ReportedReading<Source>>(empty, same)
+  };
   #versions = { inspect: 0, select: 0 };
   #read: (() => InspectionState<Source, Snapshot>) | null;
   readonly #interaction: Interaction;
-
   constructor(read: () => InspectionState<Source, Snapshot>, interaction: Interaction) {
     this.#read = read;
     this.#interaction = interaction;
-    this.#reports = {
-      inspect: channel(empty, same),
-      select: channel(empty, same)
-    };
   }
 
   /** Cancel captured work without forgetting the state already delivered to the host. */
@@ -93,8 +91,8 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
         channel: InspectionChannel,
         deliver: (value: (typeof values)[InspectionChannel], snapshot: Snapshot | null) => void,
         force = false
-      ): boolean => {
-        return this.#interaction.report(
+      ) =>
+        this.#interaction.report(
           this.#reports[channel],
           values[channel],
           () => current(channel),
@@ -103,8 +101,7 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
             deliver(value, values.snapshot);
           },
           force
-        );
-      }
+        )
     };
   }
 

@@ -1,4 +1,4 @@
-import { controlsPhase, type Interaction } from '../core/interaction.js';
+import { channel, controlsPhase, type Interaction } from '../core/interaction.js';
 import type { ComponentOptions, ScopeChartAction } from '../families/component-options.js';
 export type { ScopeChartAction } from '../families/component-options.js';
 
@@ -88,27 +88,29 @@ export function renderToolbar(
     slot.hidden || slot.assignedElements().length > 0 || (!controls.length && attribution.hidden);
 }
 
-export class ControlEvents {
-  #previous = '';
-  constructor(private readonly interaction: Interaction) {}
-  notify(host: HTMLElement, controls: ScopeChartControl[]) {
-    this.interaction.effect(
-      () => {
-        const current = JSON.stringify(controls);
-        if (current === this.#previous) return;
-        this.#previous = current;
+/** Controls use the same validated, coalesced reports as the other component state. */
+export function controlEvents(
+  host: HTMLElement & { readonly controls: ScopeChartControl[] },
+  interaction: Interaction
+) {
+  const reports = channel('', Object.is, controlsPhase);
+  return () => {
+    const controls = host.controls;
+    const value = JSON.stringify(controls);
+    interaction.report(
+      reports,
+      value,
+      () => value === JSON.stringify(host.controls),
+      () =>
         host.dispatchEvent(
           new CustomEvent<ScopeControlsChangeDetail>('scope-controls-change', {
             detail: { controls },
             bubbles: true,
             composed: true
           })
-        );
-      },
-      this,
-      controlsPhase
+        )
     );
-  }
+  };
 }
 
 export function inspectionFocus(root: ShadowRoot): HTMLElement {

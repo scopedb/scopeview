@@ -69,7 +69,7 @@ import {
   readControls,
   visibleControls,
   renderToolbar,
-  ControlEvents,
+  controlEvents,
   inspectionFocus,
   type ScopeChartAction
 } from './controls.js';
@@ -156,7 +156,7 @@ export class ScopeChartElement extends HTMLElement {
   #selectedNeighbors: string[] = [];
   #root: ShadowRoot;
   #appearance = new ElementTheme(this);
-  #controlEvents = new ControlEvents(interactionFor(this.#session));
+  #notifyControls = controlEvents(this, interactionFor(this.#session));
   constructor() {
     super();
     this.#root = this.attachShadow({ mode: 'open' });
@@ -385,9 +385,6 @@ export class ScopeChartElement extends HTMLElement {
     this.#notifyControls();
     return true;
   }
-  #notifyControls() {
-    this.#controlEvents.notify(this, this.controls);
-  }
   connectedCallback() {
     upgradeProperties(this, [
       'document',
@@ -586,6 +583,8 @@ export class ScopeChartElement extends HTMLElement {
   }
   async #render(revision: number) {
     const compiled = this.#compiled;
+    const current = () =>
+      compiled === this.#compiled && revision === this.#revision && this.isConnected;
     const miniature = compiled?.document.options?.presentation === 'sparkline';
     const interactive = compiled?.document.options?.interactive ?? !miniature;
     renderToolbar(this.#root, this.#options, metricControls, !interactive);
@@ -634,7 +633,7 @@ export class ScopeChartElement extends HTMLElement {
       try {
         this.#status('loading', 'Loading chart…');
         const create = await this.renderer();
-        if (revision !== this.#revision || !this.isConnected) return;
+        if (!current()) return;
         let adopted = false;
         const plot = create(
           this.#el('.canvas'),
@@ -644,7 +643,7 @@ export class ScopeChartElement extends HTMLElement {
               this.#inspect(value, position, pin, false, series, neighbors);
           }
         );
-        if (revision !== this.#revision || !this.isConnected) {
+        if (!current()) {
           plot.dispose();
           return;
         }
@@ -653,8 +652,7 @@ export class ScopeChartElement extends HTMLElement {
         this.#plot = plot;
         adopted = true;
       } catch (error) {
-        if (revision === this.#revision && this.isConnected)
-          interactionFor(this.#session).batch(() => this.#renderError(error));
+        if (current()) interactionFor(this.#session).batch(() => this.#renderError(error));
         return;
       }
     }
@@ -688,20 +686,17 @@ export class ScopeChartElement extends HTMLElement {
           const plot = this.#plot;
           if (!plot) return;
           plot.update(compiled, this.#session.hidden, this.#ui.axes ?? 'full');
-          if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)
-            return;
+          if (!current()) return;
           const snapshot =
             renderedSource in plot
               ? (plot[renderedSource] as { snapshot: CompiledChart | null }).snapshot
               : compiled;
           if (plot.model && snapshot) captureScene(plot.model, snapshot);
           plot.linkedHighlight = this.#linkedHighlight;
-          if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)
-            return;
+          if (!current()) return;
           plot.rangeSelection = this.#rangeSelection;
           const model = plot.model;
-          if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)
-            return;
+          if (!current()) return;
           this.#session.setModel(model);
           this.#el('.viewport').setAttribute(
             'aria-label',
@@ -722,8 +717,7 @@ export class ScopeChartElement extends HTMLElement {
           rows: compiled.dataset.rows.length
         });
       } catch (error) {
-        if (compiled === this.#compiled && revision === this.#revision && this.isConnected)
-          this.#renderError(error);
+        if (current()) this.#renderError(error);
       }
     });
   }

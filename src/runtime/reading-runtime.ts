@@ -1,5 +1,4 @@
-import { interactionFor, readingPhase } from '../core/interaction.js';
-import { readingState } from '../core/reading-state.js';
+import { interactionFor } from '../core/interaction.js';
 import { ReadingSession } from '../core/reading-session.js';
 import type { ChartInteraction, ChartScene } from '../core/scene.js';
 import { RuntimeLifecycle } from './lifecycle.js';
@@ -55,37 +54,21 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
     this.announce();
   }
   protected keyboard(event: KeyboardEvent) {
-    interactionFor(this.session).batch(() => this.#keyboard(event));
-  }
-  #keyboard(event: KeyboardEvent) {
-    if (
-      event.defaultPrevented ||
-      event.metaKey ||
-      event.ctrlKey ||
-      event.altKey ||
-      this.model?.interactive === false
-    )
-      return;
-    const interaction = interactionFor(this.session);
-    const target = inspectKey(event, this.session, this.selectable);
-    if (target === undefined) return;
-    if (target) {
-      const intent = readingState(this.session).intent;
-      interaction.effect(() => {
-        if (!this.signal.aborted && intent === readingState(this.session).intent)
-          this.options.onNavigate?.(target);
-      });
-    }
-    interaction.effect(
-      () => {
-        if (this.signal.aborted) return;
+    interactionFor(this.session).batch(() => {
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        this.model?.interactive === false
+      )
+        return;
+      inspectKey(event, this.session, this.selectable, this.signal, this.options, () => {
         this.focus(this.session.active);
         this.announce();
         this.options.onInspect?.(this.session.active, null, this.session.pinned);
-      },
-      {},
-      readingPhase
-    );
+      });
+    });
   }
   protected release() {
     this.session.reset();

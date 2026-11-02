@@ -10,8 +10,6 @@ import {
   Interaction,
   channel,
   interactionFor,
-  shareInteraction,
-  claimInteraction,
   controlsPhase,
   readingPhase,
   viewportPhase,
@@ -107,7 +105,7 @@ describe('interaction transactions', () => {
     expect(seen).toEqual(['current']);
   });
 
-  it('consumes a Canvas provider once and detaches borrowed facades without resetting the host', () => {
+  it('shares one reading owner and detaches retired facades without resetting the host', () => {
     const parent = new ChartSession<string>();
     const target = { key: 'a', sources: ['a'], tooltip: { rows: [] } };
     parent.setModel({
@@ -116,19 +114,18 @@ describe('interaction transactions', () => {
       ariaLabel: 'a'
     });
     parent.inspect('a', true);
-    const canvas = {},
-      facade = new ChartSession<string>();
-    shareInteraction(canvas, interactionFor(parent));
-    claimInteraction(facade, canvas);
+    const facade = new ChartSession<string>();
     shareReading(facade, parent);
+    expect(interactionFor(facade)).toBe(interactionFor(parent));
     expect(facade.selected).toBe(parent.selected);
     releaseReading(facade);
     facade.reset();
     expect(parent.selected).toBe(target);
     expect(facade.selected).toBeNull();
     const next = new ChartSession<string>();
-    claimInteraction(next, canvas);
-    expect(next.selected).toBeNull();
+    shareReading(next, parent);
+    facade.reset();
+    expect(next.selected).toBe(target);
   });
 
   it('bounds changing-value feedback and schedules remaining work even when an observer throws', () => {

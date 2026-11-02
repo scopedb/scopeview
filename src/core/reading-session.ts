@@ -6,24 +6,24 @@ export type InspectionNavigation = 'Home' | 'End' | 'next' | 'previous';
 
 /** Pure reading reducers shared by the public facade and small headless views. */
 export class ReadingSession<Source = ResultRow> {
-  #target(key: string | null) {
-    return key === null
-      ? null
-      : (readingState<Source>(this).model?.interactionByKey.get(key) ?? null);
+  #target(name: 'active' | 'hovered' | 'selected') {
+    const state = readingState<Source>(this);
+    const key = state[name];
+    return key === null ? null : (state.model?.interactionByKey.get(key) ?? null);
   }
   get active(): ChartInteraction<Source> | null {
-    return this.#target(readingState<Source>(this).active);
+    return this.#target('active');
   }
   /** Pointer feedback remains independent of a pinned or locked reading. */
   get hovered(): ChartInteraction<Source> | null {
-    return this.#target(readingState<Source>(this).hovered);
+    return this.#target('hovered');
   }
   get pinned(): boolean {
     const state = readingState<Source>(this);
     return state.selected !== null && state.active === state.selected;
   }
   get selected(): ChartInteraction<Source> | null {
-    return this.#target(readingState<Source>(this).selected);
+    return this.#target('selected');
   }
   get series(): string | null {
     return readingState<Source>(this).series;

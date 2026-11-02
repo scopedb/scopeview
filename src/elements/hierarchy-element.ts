@@ -17,7 +17,6 @@ import { readingState, restoredKey, shareReading, releaseReading } from '../core
 import {
   channel,
   interactionFor,
-  shareInteraction,
   readingPhase,
   viewportPhase,
   viewStatePhase,
@@ -59,7 +58,7 @@ import {
   readControls,
   visibleControls,
   renderToolbar,
-  ControlEvents,
+  controlEvents,
   type ScopeChartAction
 } from './controls.js';
 import type { ScopeCommonEventDetails, ScopeEventListener, ScopeEventMap } from './events.js';
@@ -168,7 +167,7 @@ export class HierarchyElement<
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
   #stateTransaction = false;
   #linkedHighlight: LinkedHighlight | null = null;
-  #controlEvents = new ControlEvents(interactionFor(this.#session));
+  #notifyControls = controlEvents(this, this.#kernel);
   constructor(
     readonly kind: Context['kind'],
     private compile: (input: unknown) => Compiled,
@@ -375,7 +374,6 @@ export class HierarchyElement<
     return this.#runtime?.diagnostics ?? null;
   }
   toggleNode(id: string) {
-    if (!this.#compiled?.hierarchy.byId.has(id)) throw new RangeError(`Unknown node: ${id}`);
     const values = new Set(this.#collapsed);
     if (values.has(id)) values.delete(id);
     else values.add(id);
@@ -439,9 +437,6 @@ export class HierarchyElement<
       this.#notifyControls();
       return true;
     });
-  }
-  #notifyControls() {
-    this.#controlEvents.notify(this, this.controls);
   }
   refresh() {
     if (this.#runtime) this.#runtime.refresh();
@@ -715,7 +710,6 @@ export class HierarchyElement<
       }
       if (!this.#runtime) {
         const canvas = this.#el('.canvas');
-        shareInteraction(canvas, this.#kernel);
         this.#input = new ViewportController(canvas, this.#viewport, {
           rect: () => this.scene?.rect,
           enabled: () => this.#view?.document.options?.interactive !== false,

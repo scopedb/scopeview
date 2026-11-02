@@ -1,12 +1,17 @@
 import type { ReadingSession } from '../core/reading-session.js';
-import type { ChartInteraction } from '../core/scene.js';
+import { interactionFor, readingPhase } from '../core/interaction.js';
+import { readingState } from '../core/reading-state.js';
+import type { ReadingOptions } from './types.js';
 
-/** Accept common reading keys; undefined leaves an unrelated key to its owner. */
+/** Commit reading keys before navigation; publish the resulting state after navigation settles. */
 export function inspectKey<Source>(
   event: KeyboardEvent,
   session: ReadingSession<Source>,
-  selectable: boolean
-): ChartInteraction<Source> | null | undefined {
+  selectable: boolean,
+  signal: AbortSignal,
+  options: Pick<ReadingOptions<Source>, 'onNavigate'>,
+  report: () => void
+) {
   const key = event.key;
   const direction =
     key === 'Home' || key === 'End'
@@ -18,13 +23,28 @@ export function inspectKey<Source>(
           : null;
   if (!direction && key !== 'Enter' && key !== ' ' && key !== 'Escape') return;
   event.preventDefault();
-  if (key === 'Escape') {
-    session.clearInspection();
-    return null;
+  const target =
+    key === 'Escape'
+      ? null
+      : direction
+        ? session.next(direction)
+        : (session.active ?? session.next('Home'));
+  if (key === 'Escape') session.clearInspection();
+  else session.inspect(target?.key ?? null, !direction && selectable, true);
+  const interaction = interactionFor(session);
+  if (target) {
+    const intent = readingState(session).intent;
+    interaction.effect(() => {
+      if (!signal.aborted && intent === readingState(session).intent) options.onNavigate?.(target);
+    });
   }
-  const target = direction ? session.next(direction) : (session.active ?? session.next('Home'));
-  session.inspect(target?.key ?? null, !direction && selectable, true);
-  return target;
+  interaction.effect(
+    () => {
+      if (!signal.aborted) report();
+    },
+    {},
+    readingPhase
+  );
 }
 
 const dismissalOwners = new WeakSet<HTMLElement>();

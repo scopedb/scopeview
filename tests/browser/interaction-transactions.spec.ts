@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test';
-import type { ScopeTraceElement, ScopeFlameElement } from '../../src/element.js';
+import type {
+  ScopeTraceElement,
+  ScopeFlameElement,
+  ScopeControlsChangeDetail
+} from '../../src/element.js';
 import type { ViewportState } from '../../src/index.js';
 
 type Hierarchy = ScopeTraceElement | ScopeFlameElement;
@@ -169,6 +173,42 @@ for (const family of ['trace', 'profile'] as const) {
 }
 
 for (const family of ['metric', 'trace', 'profile'] as const) {
+  test(`${family} coalesces controls that return to their published value during a callback`, async ({
+    page
+  }) => {
+    await page.goto('/tests/browser/fixtures/blank.html');
+    const result = await page.evaluate(async (family) => {
+      const module = '/tests/browser/fixtures/inspection-matrix.ts';
+      const { createInspectionFixture }: typeof import('./fixtures/inspection-matrix.js') =
+        await import(module);
+      const { chart } = await createInspectionFixture({
+        name: 'controls',
+        family,
+        surface: 'component'
+      });
+      const seen: [number, boolean | undefined][] = [];
+      for (const listener of [1, 2])
+        chart!.addEventListener('scope-controls-change', (event) => {
+          const { controls } = (event as CustomEvent<ScopeControlsChangeDetail>).detail;
+          const expanded = controls.find((control) => control.action === 'toggle-data')?.expanded;
+          seen.push([listener, expanded]);
+          if (listener === 1 && expanded) {
+            chart!.performAction('toggle-data');
+            chart!.performAction('toggle-data');
+          }
+        });
+      chart!.performAction('toggle-data');
+      chart!.performAction('toggle-data');
+      return seen;
+    }, family);
+    expect(result).toEqual([
+      [1, true],
+      [2, true],
+      [1, false],
+      [2, false]
+    ]);
+  });
+
   test(`${family} discards ready when a controls observer disconnects the completed frame`, async ({
     page
   }) => {

@@ -119,13 +119,6 @@ export function shareInteraction(owner: object, interaction: Interaction) {
   owners.set(owner, interaction);
 }
 
-/** Canvas providers are consumed once; an unrelated runtime never inherits a disposed session. */
-export function claimInteraction(owner: object, provider: object) {
-  const interaction = owners.get(provider);
-  owners.delete(provider);
-  if (interaction) owners.set(owner, interaction);
-}
-
 export function detachInteraction(owner: object) {
   owners.delete(owner);
 }
