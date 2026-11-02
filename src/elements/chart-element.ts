@@ -691,7 +691,9 @@ export class ScopeChartElement extends HTMLElement {
           if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)
             return;
           const snapshot =
-            renderedSource in plot ? (plot[renderedSource] as CompiledChart | null) : compiled;
+            renderedSource in plot
+              ? (plot[renderedSource] as { snapshot: CompiledChart | null }).snapshot
+              : compiled;
           if (plot.model && snapshot) captureScene(plot.model, snapshot);
           plot.linkedHighlight = this.#linkedHighlight;
           if (compiled !== this.#compiled || revision !== this.#revision || !this.isConnected)

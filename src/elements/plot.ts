@@ -7,7 +7,7 @@ import { ChartRuntime } from '../runtime/chart-runtime.js';
 
 /** Metric/category family adapter for the shared browser runtime. */
 export class Plot extends ChartRuntime implements ChartRenderer {
-  [renderedSource]: CompiledChart | null = null;
+  readonly [renderedSource] = { snapshot: null as CompiledChart | null };
   private compiled: CompiledChart | null = null;
   private hiddenKeys = '';
   private axes: AxisMode = 'full';
@@ -30,7 +30,7 @@ export class Plot extends ChartRuntime implements ChartRenderer {
         captureScene(layoutChart(compiled, hidden, width, height, measure, axes), compiled),
       reason
     );
-    this[renderedSource] = sceneSnapshot(this.model) as CompiledChart | null;
+    this[renderedSource].snapshot = sceneSnapshot(this.model) as CompiledChart | null;
     this.compiled = compiled;
     this.hiddenKeys = keys;
     this.axes = axes;

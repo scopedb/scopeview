@@ -111,19 +111,18 @@ for (const adapter of ['wrapped', 'legacy'] as const) {
                 reused = true;
               }
             };
-            // A legacy adapter implements only the existing public renderer contract.
-            if (adapter === 'legacy')
-              return {
-                get model() {
-                  return renderer.model;
-                },
-                update: renderer.update,
-                anchor: renderer.anchor.bind(renderer),
-                focus: renderer.focus.bind(renderer),
-                dispose: renderer.dispose.bind(renderer),
-                linkedHighlight: null
-              };
-            return renderer;
+            const facade = {
+              get model() {
+                return renderer.model;
+              },
+              update: renderer.update,
+              anchor: renderer.anchor.bind(renderer),
+              focus: renderer.focus.bind(renderer),
+              dispose: renderer.dispose.bind(renderer),
+              linkedHighlight: null
+            };
+            // Wrappers may forward own properties; legacy adapters need only the public contract.
+            return adapter === 'wrapped' ? Object.assign(facade, renderer) : facade;
           };
         }
       }

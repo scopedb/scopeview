@@ -3,7 +3,7 @@ import type { AxisMode, ChartInteraction, ChartScene, Position } from '../core/s
 import type { RangeSelectionBinding } from '../core/range.js';
 import type { LinkedHighlight } from '../core/link-group.js';
 
-/** Internal completion record; legacy renderers keep their synchronous update contract. */
+/** Shared completion record, including through wrappers that forward renderer properties. */
 export const renderedSource = Symbol();
 
 export interface ChartRenderer {
