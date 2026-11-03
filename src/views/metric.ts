@@ -1,13 +1,11 @@
-import { captureScene } from '../core/scene-snapshot.js';
-import { metricInspectionContext } from '../families/metrics/inspection-context.js';
-import tokens from '../theme/metric-tokens.css?inline';
 import { parseViewOptions } from './options.js';
 import type { CompiledChart } from '../families/metrics/document.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
 import type { ResultRow } from '../data/result.js';
 import type { MetricInspectionContext } from '../core/inspection-context.js';
+import { createMetricPlot } from './metric-plot.js';
 import { scalarView, type ScalarValue } from './scalar.js';
-import { View, type ViewOptions, type ChartView } from './view.js';
+import type { ViewOptions, ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
 import { interactionFor, readingPhase } from '../core/interaction.js';
 
@@ -20,8 +18,8 @@ export function createMetric(
   options: ViewOptions<ResultRow, MetricInspectionContext>
 ) {
   options = parseViewOptions(options);
-  // A negative revision retires the handle and invalidates queued replacements.
   let revision = 0;
+  let disposed = false;
   let inner: ChartView;
   let plot: ReturnType<typeof createMetricPlot> | null = null;
   const scalarValues = (value: CompiledChart): ScalarValue[] => {
@@ -39,7 +37,7 @@ export function createMetric(
   const mount = (
     next: CompiledChart,
     nextLayout: MetricLayout,
-    theme = options.theme
+    theme = options.theme ?? 'light'
   ): ChartView => {
     plot =
       next.config.mapping.kind === 'aggregate'
@@ -51,7 +49,7 @@ export function createMetric(
   };
   const handle: ChartView = {
     update(document) {
-      if (revision < 0) throw new Error('This chart has been disposed.');
+      if (disposed) throw new Error('This chart has been disposed.');
       replace(compile(document));
     },
     get theme() {
@@ -62,13 +60,14 @@ export function createMetric(
     },
     refresh: () => inner.refresh(),
     dispose() {
-      revision = -1;
+      disposed = true;
+      revision++;
       inner.dispose();
       interactionHosts.delete(handle);
     }
   };
   function replace(next: CompiledChart, nextLayout?: MetricLayout) {
-    if (revision < 0) throw new Error('This chart has been disposed.');
+    if (disposed) throw new Error('This chart has been disposed.');
     const current = ++revision;
     if ((next.config.mapping.kind !== 'aggregate') !== !!plot) {
       const interaction = interactionFor(plot?.view.runtime.session ?? handle);
@@ -91,36 +90,4 @@ export function createMetric(
   }
   inner = mount(compiled, layout);
   return { view: handle, replace };
-}
-
-/** Fixed entries omit HTML switching while sharing the same plotted-view lifecycle. */
-export function createMetricPlot(
-  host: HTMLElement,
-  compiled: CompiledChart,
-  layout: MetricLayout,
-  options: ViewOptions<ResultRow, MetricInspectionContext>
-) {
-  const view = new View(
-    host,
-    options,
-    tokens,
-    (width, height, measure, hidden) =>
-      captureScene(
-        layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal'),
-        compiled
-      ),
-    (target, series, snapshot) => metricInspectionContext(snapshot as CompiledChart, target, series)
-  );
-  const interaction = interactionFor(view.runtime.session);
-  const replace = (next: CompiledChart, nextLayout: MetricLayout = layout) => {
-    view.assertActive();
-    interaction.batch(() => {
-      compiled = next;
-      layout = nextLayout;
-      view.status(next.document.data.rows.length ? null : 'No data');
-      view.changed();
-    });
-  };
-  view.status(compiled.document.data.rows.length ? null : 'No data');
-  return { view, replace };
 }

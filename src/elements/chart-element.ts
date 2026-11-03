@@ -18,7 +18,12 @@ import {
   viewStatePhase,
   readyPhase
 } from '../core/interaction.js';
-import { shareInteraction } from '../core/interaction.js';
+import {
+  restoredKey,
+  restoreReading,
+  shareReading,
+  releaseReading
+} from '../core/reading-state.js';
 import { ChartSession } from '../core/session.js';
 import {
   InspectionNotifications,
@@ -116,7 +121,6 @@ export class ScopeChartElement extends HTMLElement {
   }
   #error: string | null = null;
   #session = new ChartSession('compare');
-  #pendingPin: string | null | undefined;
   #plot: ChartRenderer | null = null;
   #frame = 0;
   #revision = 0;
@@ -239,7 +243,9 @@ export class ScopeChartElement extends HTMLElement {
       version: 1,
       kind: 'metric',
       pinnedKey:
-        this.#pendingPin !== undefined ? this.#pendingPin! : (this.#session.selected?.key ?? null),
+        restoredKey(this.#session) !== undefined
+          ? restoredKey(this.#session)!
+          : (this.#session.selected?.key ?? null),
       hiddenSeries: [...this.#session.hidden].sort()
     };
   }
@@ -265,7 +271,7 @@ export class ScopeChartElement extends HTMLElement {
   #applyState(state: MetricViewState) {
     const names = new Set(this.#compiled?.series.map((series) => series.name));
     this.#session.setHidden(state.hiddenSeries.filter((name) => names.has(name)));
-    this.#pendingPin = state.pinnedKey;
+    restoreReading(this.#session, state.pinnedKey);
   }
   get linkedHighlight() {
     return this.#linkedHighlight && { ...this.#linkedHighlight };
@@ -564,6 +570,8 @@ export class ScopeChartElement extends HTMLElement {
   #dispose() {
     const plot = this.#plot;
     this.#plot = null;
+    if (plot && 'session' in plot && plot.session && typeof plot.session === 'object')
+      releaseReading(plot.session);
     this.#session.setModel(null);
     interactionFor(this.#session).effect(() => plot?.dispose());
   }
@@ -640,7 +648,7 @@ export class ScopeChartElement extends HTMLElement {
           return;
         }
         if ('session' in plot && plot.session && typeof plot.session === 'object')
-          shareInteraction(plot.session, interactionFor(this.#session));
+          shareReading(plot.session, this.#session);
         this.#plot = plot;
         adopted = true;
       } catch (error) {
@@ -690,10 +698,6 @@ export class ScopeChartElement extends HTMLElement {
           const model = plot.model;
           if (!current()) return;
           this.#session.setModel(model);
-          if (model && this.#pendingPin !== undefined) {
-            this.#session.restorePin(this.#pendingPin);
-            this.#pendingPin = undefined;
-          }
           this.#el('.viewport').setAttribute(
             'aria-label',
             title || plot.model?.ariaLabel || 'ScopeDB chart'
@@ -832,7 +836,6 @@ export class ScopeChartElement extends HTMLElement {
       this.#cursorTimeMs = null;
       this.#readingNeighbors = [];
       this.#selectedNeighbors = [];
-      this.#pendingPin = undefined;
       this.#session.clearInspection();
       const batch = this.#notifications.capture();
       this.#showInspection(null, false, false, batch);

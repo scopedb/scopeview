@@ -11,9 +11,10 @@ type NotificationPhase = 1 | 2 | 3 | 4 | 5;
 
 /** One commit/effect boundary per chart. State transitions never call observers. */
 export class Interaction {
+  declare reading?: unknown;
   #busy = 0;
   #work: Map<object, Effect>[] = [];
-  #scheduled: ReturnType<typeof setTimeout> | undefined;
+  #scheduled = false;
 
   batch<T>(commit: () => T): T {
     this.#busy++;
@@ -77,8 +78,9 @@ export class Interaction {
     } finally {
       this.#busy = 0;
       if (this.#work.find(nonempty)) {
-        this.#scheduled = setTimeout(() => {
-          this.#scheduled = undefined;
+        this.#scheduled = true;
+        setTimeout(() => {
+          this.#scheduled = false;
           this.#flush();
         }, 0);
       }
@@ -102,7 +104,7 @@ export function channel<T>(
   return { value, same, phase };
 }
 
-// Only delivery is shared; each session retains its existing state and lifetime.
+// Public session objects are facades; sharing a session never duplicates its state owner.
 const owners = new WeakMap<object, Interaction>();
 export function interactionFor(owner: object): Interaction {
   let interaction = owners.get(owner);
@@ -115,4 +117,8 @@ export function interactionFor(owner: object): Interaction {
 
 export function shareInteraction(owner: object, interaction: Interaction) {
   owners.set(owner, interaction);
+}
+
+export function detachInteraction(owner: object) {
+  owners.delete(owner);
 }

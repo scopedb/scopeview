@@ -1,12 +1,12 @@
-import type { ChartSession } from '../core/session.js';
+import type { ReadingSession } from '../core/reading-session.js';
 import { interactionFor, readingPhase } from '../core/interaction.js';
-import { sessionRevision } from '../core/session.js';
+import { readingState } from '../core/reading-state.js';
 import type { ReadingOptions } from './types.js';
 
 /** Commit reading keys before navigation; publish the resulting state after navigation settles. */
 export function inspectKey<Source>(
   event: KeyboardEvent,
-  session: ChartSession<Source>,
+  session: ReadingSession<Source>,
   selectable: boolean,
   signal: AbortSignal,
   options: Pick<ReadingOptions<Source>, 'onNavigate'>,
@@ -33,16 +33,18 @@ export function inspectKey<Source>(
   else session.inspect(target?.key ?? null, !direction && selectable, true);
   const interaction = interactionFor(session);
   if (target) {
-    const revision = sessionRevision(session),
-      intent = revision.intent;
-    interaction.effect(
-      () => options.onNavigate?.(target),
-      {},
-      0,
-      () => !signal.aborted && intent === revision.intent
-    );
+    const intent = readingState(session).intent;
+    interaction.effect(() => {
+      if (!signal.aborted && intent === readingState(session).intent) options.onNavigate?.(target);
+    });
   }
-  interaction.effect(report, {}, readingPhase, () => !signal.aborted);
+  interaction.effect(
+    () => {
+      if (!signal.aborted) report();
+    },
+    {},
+    readingPhase
+  );
 }
 
 const dismissalOwners = new WeakSet<HTMLElement>();
