@@ -74,16 +74,15 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
       select: empty
     };
     const values = {
+      snapshot: state.snapshot,
       inspect: reading(state.inspect, state.snapshot),
       select: reading(state.select, state.snapshot, true)
     };
     const versions = { ...this.#versions };
     const current = (channel: InspectionChannel): boolean => {
-      if (versions[channel] !== this.#versions[channel]) return false;
-      const live = this.#read?.();
-      return (
-        !!live && same(values[channel], reading(live[channel], live.snapshot, channel === 'select'))
-      );
+      if (!this.#read || versions[channel] !== this.#versions[channel]) return false;
+      const live = this.#read();
+      return same(values[channel], reading(live[channel], live.snapshot, channel === 'select'));
     };
     return {
       state: values,
@@ -99,7 +98,7 @@ export class InspectionNotifications<Source, Snapshot extends object = object> {
           () => current(channel),
           (value) => {
             versions[channel] = ++this.#versions[channel];
-            deliver(value, value.snapshot as Snapshot | null);
+            deliver(value, values.snapshot);
           },
           force
         )

@@ -5,7 +5,7 @@ import { metricLayoutKind } from '../families/metrics/layout-kind.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
 import type { ResultRow } from '../data/result.js';
 import type { MetricInspectionContext } from '../core/inspection-context.js';
-import { createMetricPlot } from './metric.js';
+import { createMetricPlot } from './metric-plot.js';
 import type { ChartView, ViewOptions } from './view.js';
 
 /** Fixed-type entries can omit the other layouts and the automatic download router. */

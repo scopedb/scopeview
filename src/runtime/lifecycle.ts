@@ -1,4 +1,4 @@
-import { sessionRevision } from '../core/session.js';
+import { readingState } from '../core/reading-state.js';
 import { interactionFor } from '../core/interaction.js';
 import type { PaintInvalidation } from '../core/painter.js';
 import type {
@@ -107,7 +107,17 @@ export abstract class RuntimeLifecycle<Source> {
           this.session.setModel(null);
           this.canvas.replaceChildren();
           this.canvas.setAttribute('aria-label', 'Chart rendering failed.');
-          interaction.effect(() => this.options.onError?.(error), {}, 0, this.#current());
+          const revision = this.#revision;
+          const version = readingState(this.session).modelVersion;
+          interaction.effect(
+            () => this.options.onError?.(error),
+            {},
+            0,
+            () =>
+              !this.signal.aborted &&
+              revision === this.#revision &&
+              version === readingState(this.session).modelVersion
+          );
         }
       });
     });
@@ -122,7 +132,12 @@ export abstract class RuntimeLifecycle<Source> {
         this.#measurement = null;
         this.#revision++;
       }
-      const current = this.#current();
+      const revision = this.#revision;
+      const modelVersion = readingState(this.session).modelVersion;
+      const current = () =>
+        !this.signal.aborted &&
+        revision === this.#revision &&
+        modelVersion === readingState(this.session).modelVersion;
       const { width, height } = this.canvas.getBoundingClientRect();
       if (width <= 0 || height <= 0) return;
       const font = canvasFont(this.canvas);
@@ -148,20 +163,14 @@ export abstract class RuntimeLifecycle<Source> {
       }
       this.session.setModel(scene.navigation ?? scene);
       this.draw(scene);
+      const rendered = scene;
       interaction.effect(
-        () => this.options.onRender?.(scene!),
+        () => this.options.onRender?.(rendered),
         {},
         0,
-        () => !this.signal.aborted && this.painter.model === scene
+        () => !this.signal.aborted && this.painter.model === rendered
       );
     });
-  }
-  #current() {
-    const revision = this.#revision,
-      versions = sessionRevision(this.session),
-      modelVersion = versions.model;
-    return () =>
-      !this.signal.aborted && revision === this.#revision && modelVersion === versions.model;
   }
   anchor(target: ChartInteraction<Source>) {
     return this.painter.anchor(target);

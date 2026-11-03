@@ -1,5 +1,5 @@
 import { interactionFor } from '../core/interaction.js';
-import { ChartSession } from '../core/session.js';
+import { ReadingSession } from '../core/reading-session.js';
 import type { ChartInteraction, ChartScene } from '../core/scene.js';
 import { RuntimeLifecycle } from './lifecycle.js';
 import type { ReadingOptions } from './types.js';
@@ -8,7 +8,7 @@ import { inspectKey } from './inspection-input.js';
 /** Report lifecycle and transient reading. Range, links and viewport controllers stay optional. */
 export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
   protected declare readonly options: ReadingOptions<Source>;
-  readonly session = new ChartSession<Source>('compare');
+  readonly session = new ReadingSession<Source>();
   selectable = false;
 
   constructor(canvas: HTMLElement, decoration: HTMLElement, options: ReadingOptions<Source>) {
