@@ -20,6 +20,7 @@ import {
 } from '../core/interaction.js';
 import { shareInteraction } from '../core/interaction.js';
 import { ChartSession } from '../core/session.js';
+import { restoreInspection } from '../core/inspection-restore.js';
 import {
   InspectionNotifications,
   type InspectionReading
@@ -116,7 +117,10 @@ export class ScopeChartElement extends HTMLElement {
   }
   #error: string | null = null;
   #session = new ChartSession('compare');
-  #pendingPin: string | null | undefined;
+  #pendingPin?: () => string | null | undefined;
+  get #restoredPin() {
+    return this.#pendingPin?.();
+  }
   #plot: ChartRenderer | null = null;
   #frame = 0;
   #revision = 0;
@@ -239,7 +243,9 @@ export class ScopeChartElement extends HTMLElement {
       version: 1,
       kind: 'metric',
       pinnedKey:
-        this.#pendingPin !== undefined ? this.#pendingPin! : (this.#session.selected?.key ?? null),
+        this.#restoredPin !== undefined
+          ? this.#restoredPin!
+          : (this.#session.selected?.key ?? null),
       hiddenSeries: [...this.#session.hidden].sort()
     };
   }
@@ -265,7 +271,7 @@ export class ScopeChartElement extends HTMLElement {
   #applyState(state: MetricViewState) {
     const names = new Set(this.#compiled?.series.map((series) => series.name));
     this.#session.setHidden(state.hiddenSeries.filter((name) => names.has(name)));
-    this.#pendingPin = state.pinnedKey;
+    this.#pendingPin = restoreInspection(this.#session, state.pinnedKey);
   }
   get linkedHighlight() {
     return this.#linkedHighlight && { ...this.#linkedHighlight };
@@ -689,10 +695,11 @@ export class ScopeChartElement extends HTMLElement {
           plot.rangeSelection = this.#rangeSelection;
           const model = plot.model;
           if (!current()) return;
+          const pin = this.#restoredPin;
           this.#session.setModel(model);
-          if (model && this.#pendingPin !== undefined) {
-            this.#session.restorePin(this.#pendingPin);
-            this.#pendingPin = undefined;
+          if (pin !== undefined) {
+            this.#pendingPin = restoreInspection(this.#session, pin);
+            if (model && snapshot === compiled) this.#pendingPin = undefined;
           }
           this.#el('.viewport').setAttribute(
             'aria-label',

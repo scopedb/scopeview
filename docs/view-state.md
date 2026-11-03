@@ -34,6 +34,8 @@ export function restoreView(chart: ScopeChartElement, saved: string) {
 
 `scope-view-state-change` reports `{ state, reason }`, where reason is `interaction`, `restore`, `document` or `reconcile`. Hover, temporary keyboard reading and metric tooltip lock are not saved. Restoring a view does not move DOM focus.
 
+Restoration commits its logical reading immediately and cancels earlier queued reading and navigation work. Newer accepted reading or dismissal input supersedes a pending restore; rejected hover does not. Pending keys survive missing measurements and reconcile with their source when it paints.
+
 ## Preserve state across data updates
 
 Use `updateDocument(input, { preserveViewState: true })` for a new snapshot of the same logical source. Compatible pins, visibility, collapsed nodes and viewport survive. Missing sources are cleared; a pin is not moved to the next row. A pin below a collapsed ancestor is also cleared. Assigning `document` directly resets state.

@@ -1,6 +1,7 @@
 import { ownInspectionDismissal } from '../runtime/inspection-input.js';
 import { captureScene, sceneSnapshot } from '../core/scene-snapshot.js';
 import { sessionRevision } from '../core/session.js';
+import { restoreInspection } from '../core/inspection-restore.js';
 import {
   Interaction,
   shareInteraction,
@@ -152,7 +153,10 @@ export class HierarchyElement<
       select: { target: project(this.#runtime?.session.selected ?? null) }
     };
   }, this.#kernel);
-  #pendingPin: string | null | undefined;
+  #pendingPin?: () => string | null | undefined;
+  get #restoredPin() {
+    return this.#pendingPin?.();
+  }
   #pendingViewport: ViewportState | null = null;
   #pendingReveal: { id: string; intent: number; snapshot: Compiled | null } | null = null;
   #viewportRequest: object | null = null;
@@ -261,8 +265,8 @@ export class HierarchyElement<
       version: 1,
       kind: this.kind,
       pinnedKey:
-        this.#pendingPin !== undefined
-          ? this.#pendingPin
+        this.#restoredPin !== undefined
+          ? this.#restoredPin!
           : this.#runtime?.session.pinned
             ? (this.#runtime.session.active?.key ?? null)
             : null,
@@ -289,7 +293,7 @@ export class HierarchyElement<
     this.#collapsed = new Set(
       state.collapsed.filter((id) => this.#compiled?.hierarchy.children.get(id)?.length)
     );
-    this.#pendingPin = state.pinnedKey;
+    this.#pendingPin = restoreInspection(this.#runtime?.session ?? null, state.pinnedKey);
     this.#pendingViewport = { ...state.viewport };
   }
   get linkedHighlight() {
@@ -489,7 +493,10 @@ export class HierarchyElement<
   }
   #rebuild() {
     this.#view = this.#compiled ? this.createView(this.#compiled, this.#collapsed) : null;
+    const pin = this.#restoredPin;
     this.#runtime?.session.setModel(this.#view?.navigation ?? null);
+    if (pin !== undefined)
+      this.#pendingPin = restoreInspection(this.#runtime?.session ?? null, pin);
     // Prepare controller geometry now, while preserving the raw restore until paint or input.
     const restored = this.#pendingViewport;
     if (restored && this.scene && this.#view) this.#prepareViewport(this.scene.height);
@@ -544,7 +551,7 @@ export class HierarchyElement<
       if (
         !this.#runtime?.session.pinned &&
         !this.#runtime?.session.keyboardInspection &&
-        !this.#pendingPin
+        !this.#restoredPin
       )
         this.#clearInspection();
       this.#runtime?.refresh();
@@ -652,7 +659,7 @@ export class HierarchyElement<
         if (
           (event as KeyboardEvent).key !== 'Escape' ||
           event.composedPath().includes(canvas) ||
-          (!this.#runtime?.session.active && this.#pendingPin === undefined)
+          (!this.#runtime?.session.active && this.#restoredPin === undefined)
         )
           return;
         event.preventDefault();
@@ -802,11 +809,7 @@ export class HierarchyElement<
             );
             return captureScene(scene, this.#compiled!);
           },
-          onNavigate: (target) => {
-            // A committed keyboard action supersedes restoration before reveal can paint.
-            this.#pendingPin = undefined;
-            this.#reveal(target);
-          },
+          onNavigate: (target) => this.#reveal(target),
           inputConsumed: () => this.#input?.consumed ?? false,
           onInspect: (_value, position) => this.#showInspection(position, true),
           onError: (error) => {
@@ -817,6 +820,9 @@ export class HierarchyElement<
         });
         this.#runtime = runtime;
         shareInteraction(runtime.session, this.#kernel);
+        runtime.session.setModel(view.navigation);
+        const pin = this.#restoredPin;
+        if (pin !== undefined) this.#pendingPin = restoreInspection(runtime.session, pin);
         runtime.linkedHighlight = this.#linkedHighlight;
       } else this.#runtime.refresh();
     });
@@ -826,8 +832,9 @@ export class HierarchyElement<
       view = this.#view,
       compiled = this.#renderedCompiled;
     if (!scene || !view || !compiled) return;
-    if (this.#pendingPin !== undefined) {
-      this.#runtime!.session.restorePin(scene.interactive === false ? null : this.#pendingPin);
+    const pin = this.#restoredPin;
+    if (pin !== undefined) {
+      this.#runtime!.session.restorePin(scene.interactive === false ? null : pin);
       this.#pendingPin = undefined;
       this.#runtime!.focus(this.#runtime!.session.active);
     }
