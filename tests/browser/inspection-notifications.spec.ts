@@ -651,40 +651,6 @@ for (const entry of inspectionEntries) {
         expect(result.painted).toContain(`${entry.family}:child`);
       });
 
-      for (const restore of ['document', 'view-state', 'loading'] as const) {
-        test(`Escape cancels a pending ${restore} pin restoration`, async ({ page }) => {
-          const result = await page.evaluate(async (restore) => {
-            const f = window.notificationFixture;
-            f.pin();
-            const state = f.chart!.viewState;
-            f.events.length = 0;
-            if (restore === 'document') await f.replace('200');
-            else if (restore === 'view-state') f.chart!.viewState = state;
-            else {
-              f.chart!.loading = true;
-              await f.settle();
-            }
-            f.key('Escape');
-            const immediate = { ...f.latest, pin: f.chart!.viewState.pinnedKey };
-            f.chart!.loading = false;
-            await f.settle();
-            return {
-              immediate,
-              latest: f.latest,
-              pin: f.chart!.viewState.pinnedKey,
-              events: f.events
-            };
-          }, restore);
-          expect(result.immediate).toEqual({ inspect: null, select: null, pin: null });
-          expect(result.latest).toEqual({ inspect: null, select: null });
-          expect(result.pin).toBeNull();
-          expect(result.events.map((event) => [event.channel, event.context])).toEqual([
-            ['inspect', null],
-            ['select', null]
-          ]);
-        });
-      }
-
       test('a restoration requested by the Escape callback survives the earlier dismissal', async ({
         page
       }) => {

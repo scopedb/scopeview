@@ -271,7 +271,10 @@ export class ScopeChartElement extends HTMLElement {
   #applyState(state: MetricViewState) {
     const names = new Set(this.#compiled?.series.map((series) => series.name));
     this.#session.setHidden(state.hiddenSeries.filter((name) => names.has(name)));
-    this.#pendingPin = restoreInspection(this.#session, state.pinnedKey);
+    this.#pendingPin = restoreInspection(
+      this.#session,
+      this.#options.interactive ? state.pinnedKey : null
+    );
   }
   get linkedHighlight() {
     return this.#linkedHighlight && { ...this.#linkedHighlight };
@@ -421,7 +424,10 @@ export class ScopeChartElement extends HTMLElement {
     this.#root.addEventListener(
       'keydown',
       (event) => {
-        if ((event as KeyboardEvent).key === 'Escape' && this.#session.active) {
+        if (
+          (event as KeyboardEvent).key === 'Escape' &&
+          (this.#session.active || this.#restoredPin !== undefined)
+        ) {
           event.preventDefault();
           this.#clearInspection();
           inspectionFocus(this.#root).focus();
@@ -698,7 +704,7 @@ export class ScopeChartElement extends HTMLElement {
           const pin = this.#restoredPin;
           this.#session.setModel(model);
           if (pin !== undefined) {
-            this.#pendingPin = restoreInspection(this.#session, pin);
+            this.#pendingPin = restoreInspection(this.#session, interactive ? pin : null);
             if (model && snapshot === compiled) this.#pendingPin = undefined;
           }
           this.#el('.viewport').setAttribute(
