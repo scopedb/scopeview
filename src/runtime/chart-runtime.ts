@@ -1,6 +1,5 @@
 import { inspectKey, ownsInspectionDismissal } from './inspection-input.js';
 import { interactionFor } from '../core/interaction.js';
-import { releaseReading } from '../core/reading-state.js';
 import { ChartSession } from '../core/session.js';
 import { RangeSelectionSession, type RangeSelectionBinding } from '../core/range.js';
 import type { ChartInteraction, ChartScene, Inspect, Position } from '../core/scene.js';
@@ -462,7 +461,6 @@ export class ChartRuntime<Source = ResultRow>
     });
   }
   protected release() {
-    releaseReading(this.session);
     this.#cancel();
     this.#binding = null;
     this.range.reset();

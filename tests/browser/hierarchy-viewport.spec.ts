@@ -178,6 +178,8 @@ for (const family of ['trace', 'profile'] as const) {
         const f = window.notificationFixture;
         const chart = f.chart as Hierarchy;
         f.pin();
+        chart.collapsed = ['a'];
+        await f.settle();
         const saved = chart.viewState;
         chart.loading = true;
         await f.settle();
@@ -191,6 +193,29 @@ for (const family of ['trace', 'profile'] as const) {
       expect(result.restored).toEqual(result.saved);
       expect(result.selected).toBe(result.saved.pinnedKey);
     });
+
+    for (const input of ['toolbar', 'keyboard'] as const) {
+      test(`${input} zoom starts from a restored viewport before its first paint`, async ({
+        page
+      }) => {
+        await deepHierarchy(page, family);
+        const result = await page.evaluate(async (input) => {
+          const f = window.notificationFixture,
+            chart = f.chart as Hierarchy;
+          chart.viewState = {
+            ...chart.viewState,
+            viewport: { start: 0.25, end: 0.75, scrollOffset: 400 }
+          };
+          if (input === 'toolbar') chart.performAction('zoom-in');
+          else f.key('+');
+          const immediate = chart.viewport;
+          await f.settle();
+          return { immediate, settled: chart.viewport };
+        }, input);
+        expect(result.immediate).toEqual({ start: 0.375, end: 0.625, scrollOffset: 400 });
+        expect(result.settled).toEqual(result.immediate);
+      });
+    }
 
     test('a viewport changed by the navigation reading callback is the last published window', async ({
       page
