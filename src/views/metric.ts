@@ -1,3 +1,6 @@
+import { captureScene } from '../core/scene-snapshot.js';
+import { metricInspectionContext } from '../families/metrics/inspection-context.js';
+import tokens from '../theme/metric-tokens.css?inline';
 import { parseViewOptions } from './options.js';
 import type { CompiledChart } from '../families/metrics/document.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
@@ -6,23 +9,21 @@ import type { MetricInspectionContext } from '../core/inspection-context.js';
 import { scalarView, type ScalarValue } from './scalar.js';
 import { View, type ViewOptions, type ChartView } from './view.js';
 import { interactionHosts } from './interactions.js';
-import { metricInspectionContext } from '../families/metrics/inspection-context.js';
-import tokens from '../theme/metric-tokens.css?inline';
+import { interactionFor, readingPhase } from '../core/interaction.js';
 
-/** Aggregate documents use HTML; plot documents instantiate the report Canvas runtime. */
+/** The general entry alone owns transitions between HTML aggregates and plotted metrics. */
 export function createMetric(
   host: HTMLElement,
   compiled: CompiledChart,
   layout: MetricLayout,
   compile: (document: unknown) => CompiledChart,
-  options: ViewOptions<ResultRow, MetricInspectionContext> = {}
+  options: ViewOptions<ResultRow, MetricInspectionContext>
 ) {
   options = parseViewOptions(options);
-  let inner: ChartView;
-  let disposed = false;
+  // A negative revision retires the handle and invalidates queued replacements.
   let revision = 0;
-  let theme = options.theme ?? 'light';
-  let rendered = compiled;
+  let inner: ChartView;
+  let plot: ReturnType<typeof createMetricPlot> | null = null;
   const scalarValues = (value: CompiledChart): ScalarValue[] => {
     const mapping = value.config.mapping;
     if (mapping.kind !== 'aggregate' || !value.document.data.rows.length) return [];
@@ -35,75 +36,91 @@ export function createMetric(
       };
     });
   };
-  const mount = () => {
-    if (compiled.config.mapping.kind === 'aggregate')
-      return scalarView(host, scalarValues(compiled), { theme });
-    const view = new View(
-      host,
-      { ...options, theme },
-      tokens,
-      (width, height, measure, hidden) => {
-        rendered = compiled;
-        return layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal');
-      },
-      {
-        snapshot: () => rendered,
-        contextFor: (target, series) => metricInspectionContext(rendered, target, series)
-      }
-    );
-    view.status(compiled.document.data.rows.length ? null : 'No data');
-    view.changed();
+  const mount = (
+    next: CompiledChart,
+    nextLayout: MetricLayout,
+    theme = options.theme
+  ): ChartView => {
+    plot =
+      next.config.mapping.kind === 'aggregate'
+        ? null
+        : createMetricPlot(host, next, nextLayout, { ...options, theme });
+    const view = plot?.view ?? scalarView(host, scalarValues(next), { theme });
+    interactionHosts.set(handle, interactionHosts.get(view));
     return view;
   };
-  inner = mount();
   const handle: ChartView = {
     update(document) {
-      if (disposed) throw new Error('This chart has been disposed.');
-      const next = compile(document);
-      replace(next);
+      if (revision < 0) throw new Error('This chart has been disposed.');
+      replace(compile(document));
     },
     get theme() {
-      return theme;
+      return inner.theme;
     },
     set theme(value) {
       inner.theme = value;
-      theme = inner.theme;
     },
     refresh: () => inner.refresh(),
     dispose() {
-      disposed = true;
-      revision++;
+      revision = -1;
       inner.dispose();
       interactionHosts.delete(handle);
     }
   };
-  function bind() {
-    const binding = interactionHosts.get(inner);
-    if (binding) interactionHosts.set(handle, binding);
-    else interactionHosts.delete(handle);
-  }
-  function replace(next: CompiledChart, nextLayout: MetricLayout = layout) {
-    if (disposed) throw new Error('This chart has been disposed.');
+  function replace(next: CompiledChart, nextLayout?: MetricLayout) {
+    if (revision < 0) throw new Error('This chart has been disposed.');
     const current = ++revision;
-    layout = nextLayout;
-    const aggregate = next.config.mapping.kind === 'aggregate';
-    if (aggregate !== (compiled.config.mapping.kind === 'aggregate')) {
-      if (inner instanceof View) inner.clearInspection();
-      if (disposed || current !== revision) return;
-      inner.dispose();
-      compiled = next;
-      inner = mount();
-      bind();
-    } else {
-      compiled = next;
-      if (inner instanceof View) {
-        const view = inner;
-        view.status(compiled.document.data.rows.length ? null : 'No data');
-        if (disposed || current !== revision) return;
-        view.changed();
-      } else inner.update(scalarValues(compiled));
-    }
+    if ((next.config.mapping.kind !== 'aggregate') !== !!plot) {
+      const interaction = interactionFor(plot?.view.runtime.session ?? handle);
+      interaction.batch(() => {
+        plot?.view.clearInspection();
+        // Retire the old view only after its final readings finish broadcasting.
+        interaction.effect(
+          () => {
+            const theme = inner.theme;
+            inner.dispose();
+            inner = mount(next, nextLayout ?? layout, theme);
+          },
+          handle,
+          readingPhase,
+          () => current === revision
+        );
+      });
+    } else if (plot) plot.replace(next, nextLayout);
+    else inner.update(scalarValues(next));
   }
-  bind();
+  inner = mount(compiled, layout);
   return { view: handle, replace };
+}
+
+/** Fixed entries omit HTML switching while sharing the same plotted-view lifecycle. */
+export function createMetricPlot(
+  host: HTMLElement,
+  compiled: CompiledChart,
+  layout: MetricLayout,
+  options: ViewOptions<ResultRow, MetricInspectionContext>
+) {
+  const view = new View(
+    host,
+    options,
+    tokens,
+    (width, height, measure, hidden) =>
+      captureScene(
+        layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal'),
+        compiled
+      ),
+    (target, series, snapshot) => metricInspectionContext(snapshot as CompiledChart, target, series)
+  );
+  const interaction = interactionFor(view.runtime.session);
+  const replace = (next: CompiledChart, nextLayout: MetricLayout = layout) => {
+    view.assertActive();
+    interaction.batch(() => {
+      compiled = next;
+      layout = nextLayout;
+      view.status(next.document.data.rows.length ? null : 'No data');
+      view.changed();
+    });
+  };
+  view.status(compiled.document.data.rows.length ? null : 'No data');
+  return { view, replace };
 }

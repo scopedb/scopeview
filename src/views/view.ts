@@ -1,3 +1,5 @@
+import { sceneSnapshot } from '../core/scene-snapshot.js';
+import { interactionFor } from '../core/interaction.js';
 import type { ChartInteraction, Position } from '../core/scene.js';
 import type { InspectionContext } from '../core/inspection-context.js';
 import { InspectionNotifications } from '../core/inspection-notifications.js';
@@ -13,76 +15,81 @@ import { interactionHosts, type ViewportDriver } from './interactions.js';
 export type { ChartTheme, ChartView, ThemeConfig, ThemeMode } from './host.js';
 import type { ViewOptions } from './options.js';
 export type { ViewOptions } from './options.js';
+type ContextProjector<Source, Context> = (
+  target: ChartInteraction<Source> | null,
+  series: string | null,
+  snapshot: object
+) => Context | null;
+
 /** A canvas and transient reading. Application UI stays outside this owned child. */
 export class View<Source, Context extends InspectionContext> extends ViewHost implements ChartView {
   readonly canvas = node('div', 'canvas');
   readonly runtime: ReadingRuntime<Source>;
-  readonly signal: AbortSignal;
   viewport?: ViewportDriver;
-  update: (document: unknown) => void = () => {};
+  declare update: (document: unknown) => void;
   #tooltip = node('div', 'tooltip');
   #status = node('div', 'status');
   #statusMessage: string | null = null;
   #readingVisible = true;
   #position: Position | null = null;
   #cleanups: (() => void)[] = [];
-  #notifications = new InspectionNotifications<Source>(() => {
-    const session = this.runtime.session;
-    return {
-      snapshot: this.inspection.snapshot(),
-      inspect: {
-        target:
-          !this.#readingVisible || this.runtime.model?.interactive === false
-            ? null
-            : session.keyboardInspection
-              ? session.active
-              : this.#position
-                ? session.hovered
-                : null,
-        series: session.series
-      },
-      select: { target: session.selected, series: session.selectedSeries }
-    };
-  });
+  #notifications: InspectionNotifications<Source>;
+  readonly #contextFor: ContextProjector<Source, Context>;
 
   constructor(
     host: HTMLElement,
     readonly options: ViewOptions<Source, Context>,
     tokens: string,
     layout: SceneLayout<Source>,
-    private readonly inspection: {
-      snapshot(): object | null;
-      contextFor(target: ChartInteraction<Source> | null, series: string | null): Context | null;
-    },
-    input: {
+    contextFor: ContextProjector<Source, Context>,
+    input?: {
       onNavigate?(target: ChartInteraction<Source>): void;
       inputConsumed?(): boolean;
-    } = {}
+    }
   ) {
     super(host, styles, baseTokens + tokens, options.theme);
-    this.signal = this.events.signal;
+    this.#contextFor = contextFor;
+    const signal = this.events.signal;
     const decoration = node('div', 'decoration');
-    this.#status.hidden = this.#tooltip.hidden = true;
+    this.#tooltip.hidden = true;
     this.root.append(this.canvas, decoration, this.#status, this.#tooltip);
     this.runtime = new ReadingRuntime(this.canvas, decoration, {
       layout,
       ...input,
       onInspect: (_target, position) => {
         this.#position = position;
-        this.#reading();
+        this.#report();
       },
       onRender: () => {
         if (this.element.dataset.state === 'error') this.#showStatus(this.#statusMessage);
         this.element.dataset.state = 'ready';
-        this.#reading();
+        this.#report();
       },
       onError: (error) => {
-        this.#reading();
+        this.#report();
         this.#showStatus('Unable to render chart.');
         this.element.dataset.state = 'error';
         options.onError?.(error);
       }
     });
+    this.#notifications = new InspectionNotifications(() => {
+      const session = this.runtime.session;
+      return {
+        snapshot: sceneSnapshot(this.runtime.model),
+        inspect: {
+          target:
+            !this.#readingVisible || this.runtime.model?.interactive === false
+              ? null
+              : session.keyboardInspection
+                ? session.active
+                : this.#position
+                  ? session.hovered
+                  : null,
+          series: session.series
+        },
+        select: { target: session.selected, series: session.selectedSeries }
+      };
+    }, interactionFor(this.runtime.session));
     this.repaint = () => this.runtime.refresh('paint');
     interactionHosts.set(this, {
       select: (enabled) => {
@@ -90,27 +97,25 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
         this.runtime.selectable = enabled;
         if (!enabled) this.clearInspection();
       },
-      cleanup: (callback) => this.cleanup(callback)
+      cleanup: (callback) => this.#cleanups.push(callback)
     });
     const dismiss = (event: Event) => {
       if (event.composedPath().includes(this.element)) return;
       this.clearInspection();
     };
-    document.addEventListener('pointerdown', dismiss, { signal: this.signal });
-    document.addEventListener('focusin', dismiss, { signal: this.signal });
+    document.addEventListener('pointerdown', dismiss, { signal });
+    document.addEventListener('focusin', dismiss, { signal });
     window.addEventListener(
       'scroll',
       () => {
-        if (this.runtime.session.keyboardInspection) this.#reading();
+        if (this.runtime.session.keyboardInspection) this.#report();
         else this.hideReading();
       },
-      { capture: true, signal: this.signal }
+      { capture: true, signal }
     );
   }
-  #reading() {
-    if (this.disposed) return;
-    this.#readingVisible = true;
-    const batch = this.#notifications.capture();
+  #presentReading(batch: ReturnType<InspectionNotifications<Source>['capture']>) {
+    this.runtime.focus(this.runtime.session.active);
     const { target, series } = batch.state.inspect;
     if (!target || this.options.tooltip === false) {
       hideInspection(this.#tooltip);
@@ -125,29 +130,38 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
         });
       else hideInspection(this.#tooltip);
     }
-    this.#report(batch);
   }
-  #report(batch: ReturnType<InspectionNotifications<Source>['capture']>) {
-    batch.emit('select', (value) =>
-      this.options.onSelect?.(value.target, this.inspection.contextFor(value.target, value.series))
+  #report(visible = true) {
+    this.#readingVisible = visible;
+    const batch = this.#notifications.capture();
+    interactionFor(this.runtime.session).effect(
+      () => this.#presentReading(batch),
+      this.#tooltip,
+      0,
+      () => batch.current('inspect')
     );
-    batch.emit('inspect', (value) =>
-      this.options.onInspect?.(value.target, this.inspection.contextFor(value.target, value.series))
-    );
+    for (const channel of ['select', 'inspect'] as const)
+      batch.emit(channel, (value, snapshot) =>
+        this.options[channel === 'select' ? 'onSelect' : 'onInspect']?.(
+          value.target,
+          snapshot ? this.#contextFor(value.target, value.series, snapshot) : null
+        )
+      );
   }
+
   hideReading() {
-    this.#readingVisible = false;
-    this.#position = null;
-    this.#notifications.invalidate('inspect');
-    hideInspection(this.#tooltip);
-    this.#report(this.#notifications.capture());
+    this.#dismiss(false);
   }
   clearInspection() {
-    this.#notifications.invalidate();
-    this.runtime.session.clearInspection();
-    this.runtime.focus(null);
-    this.#position = null;
-    this.#reading();
+    this.#dismiss(true);
+  }
+  #dismiss(clear: boolean) {
+    interactionFor(this.runtime.session).batch(() => {
+      this.#notifications.invalidate(clear ? undefined : 'inspect');
+      if (clear) this.runtime.session.clearInspection();
+      this.#position = null;
+      this.#report(clear);
+    });
   }
   status(message: string | null) {
     this.#statusMessage = message;
@@ -160,20 +174,17 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
     if (message) this.hideReading();
   }
   changed() {
-    this.assertActive();
-    this.#notifications.invalidate();
-    this.hideReading();
-    this.runtime.session.inspect(null);
-    this.runtime.refresh();
-  }
-  cleanup(callback: () => void) {
-    this.#cleanups.push(callback);
+    interactionFor(this.runtime.session).batch(() => {
+      this.#notifications.invalidate();
+      this.hideReading();
+      this.runtime.session.inspect(null);
+      this.runtime.refresh();
+    });
   }
   dispose() {
     if (this.disposed) return;
     this.#notifications.dispose();
     this.disposed = true;
-    this.hideReading();
     for (const cleanup of this.#cleanups) cleanup();
     this.runtime.dispose();
     interactionHosts.delete(this);

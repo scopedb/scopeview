@@ -1,3 +1,16 @@
+import { ownInspectionDismissal } from '../runtime/inspection-input.js';
+import { captureScene, sceneSnapshot } from '../core/scene-snapshot.js';
+import { sessionRevision } from '../core/session.js';
+import { restoreInspection } from '../core/inspection-restore.js';
+import {
+  Interaction,
+  shareInteraction,
+  channel,
+  readingPhase,
+  viewportPhase,
+  viewStatePhase,
+  readyPhase
+} from '../core/interaction.js';
 import { object, boolean } from '../data/validation.js';
 import type { ChartInteraction, ChartScene, Position } from '../core/scene.js';
 import { inspectionText } from '../core/labels.js';
@@ -49,7 +62,7 @@ import {
   readControls,
   visibleControls,
   renderToolbar,
-  ControlEvents,
+  controlEvents,
   type ScopeChartAction
 } from './controls.js';
 import type { ScopeCommonEventDetails, ScopeEventListener, ScopeEventMap } from './events.js';
@@ -90,6 +103,10 @@ interface CompiledEntity<Source extends Entity, Doc extends EntityDocument> {
   hierarchy: Hierarchy<Source>;
 }
 
+function sameViewport(a: Readonly<ViewportState>, b: Readonly<ViewportState>) {
+  return a.start === b.start && a.end === b.end && a.scrollOffset === b.scrollOffset;
+}
+
 /** Shared shell for entity families. Family compilers own semantics; runtime owns paint/input. */
 export class HierarchyElement<
   Source extends Entity,
@@ -99,7 +116,10 @@ export class HierarchyElement<
 > extends HTMLElement {
   static observedAttributes = ['loading', 'error', 'theme', 'style', 'class'];
   #compiled: Compiled | null = null;
-  #renderedCompiled: Compiled | null = null;
+  get #renderedCompiled() {
+    return sceneSnapshot(this.scene) as Compiled | null;
+  }
+  #kernel = new Interaction();
   #ui: EntityComponentOptions = {};
   get #options() {
     return { ...this.#ui, interactive: this.#compiled?.document.options?.interactive };
@@ -117,21 +137,41 @@ export class HierarchyElement<
   #propertySet = false;
   #frame = 0;
   #page = 0;
-  #notifications = new InspectionNotifications<Source, Compiled>(() => ({
-    snapshot: this.#renderedCompiled,
-    inspect: {
-      target: this.#runtime?.session.active ?? null,
-      pinned: this.#runtime?.session.pinned ?? false
-    },
-    select: { target: this.#runtime?.session.selected ?? null }
-  }));
-  #pendingPin: string | null | undefined;
+  #notifications = new InspectionNotifications<Source, Compiled>(() => {
+    const snapshot = this.#renderedCompiled,
+      frame = this.scene;
+    const project = (target: ChartInteraction<Source> | null) =>
+      target && snapshot !== this.#compiled
+        ? ((frame?.navigation ?? frame)?.interactionByKey.get(target.key) ?? null)
+        : target;
+    return {
+      snapshot,
+      inspect: {
+        target: project(this.#runtime?.session.active ?? null),
+        pinned: this.#runtime?.session.pinned
+      },
+      select: { target: project(this.#runtime?.session.selected ?? null) }
+    };
+  }, this.#kernel);
+  #pendingPin?: () => string | null | undefined;
+  get #restoredPin() {
+    return this.#pendingPin?.();
+  }
   #pendingViewport: ViewportState | null = null;
+  #pendingReveal: { id: string; intent: number; snapshot: Compiled | null } | null = null;
+  #viewportRequest: object | null = null;
+  #viewportReports = channel({ start: 0, end: 1, scrollOffset: 0 }, sameViewport, viewportPhase);
+  #stateReports = channel<ViewStateChangeDetail | null>(
+    null,
+    (a, b) => JSON.stringify(a?.state) === JSON.stringify(b?.state),
+    viewStatePhase
+  );
+  #collapseReports = channel<string[]>([], (a, b) => JSON.stringify(a) === JSON.stringify(b));
+  #readingEffect = {};
   #stateReason: ViewStateChangeDetail['reason'] = 'reconcile';
-  #lastState = '';
   #stateTransaction = false;
   #linkedHighlight: LinkedHighlight | null = null;
-  #controlEvents = new ControlEvents();
+  #notifyControls = controlEvents(this, this.#kernel);
   constructor(
     readonly kind: Context['kind'],
     private compile: (input: unknown) => Compiled,
@@ -184,44 +224,49 @@ export class HierarchyElement<
   }
   /** Patch host UI while keeping the viewport, collapsed nodes and selection. */
   configure(options: EntityComponentOptions) {
-    this.#ui = { ...this.#ui, ...parseComponentOptions(options, 'hierarchy') };
-    this.#schedule();
+    this.#kernel.batch(() => {
+      this.#ui = { ...this.#ui, ...parseComponentOptions(options, 'hierarchy') };
+      this.#schedule();
+    });
   }
   updateDocument(value: unknown, options: DocumentUpdateOptions = {}) {
-    object(options, 'options', ['preserveViewState']);
-    if (options.preserveViewState !== undefined)
-      boolean(options.preserveViewState, 'options.preserveViewState');
-    const previous = options.preserveViewState ? this.viewState : null;
-    this.#stateTransaction = true;
-    this.#propertySet = true;
-    this.#input?.cancel();
-    this.#clearInspection();
-    this.#collapsed.clear();
-    this.#viewport.reset();
-    this.#pendingViewport = null;
-    this.#linkedHighlight = null;
-    if (this.#runtime) this.#runtime.linkedHighlight = null;
-    this.#page = 0;
-    try {
-      this.#compiled = this.compile(value);
-      this.#error = null;
-    } catch (error) {
-      this.#compiled = null;
-      this.#error = error instanceof Error ? error.message : 'Invalid document.';
-    }
-    if (previous && this.#compiled) this.#applyState(previous);
-    this.#stateReason = 'document';
-    this.#rebuild();
-    this.#stateTransaction = false;
-    this.#schedule();
+    this.#kernel.batch(() => {
+      object(options, 'options', ['preserveViewState']);
+      if (options.preserveViewState !== undefined)
+        boolean(options.preserveViewState, 'options.preserveViewState');
+      this.#viewportRequest = null;
+      const previous = options.preserveViewState ? this.viewState : null;
+      this.#stateTransaction = true;
+      this.#propertySet = true;
+      this.#kernel.effect(() => this.#input?.cancel());
+      this.#clearInspection();
+      this.#collapsed.clear();
+      this.#viewport.reset();
+      this.#pendingViewport = null;
+      this.#linkedHighlight = null;
+      if (this.#runtime) this.#runtime.linkedHighlight = null;
+      this.#page = 0;
+      try {
+        this.#compiled = this.compile(value);
+        this.#error = null;
+      } catch (error) {
+        this.#compiled = null;
+        this.#error = error instanceof Error ? error.message : 'Invalid document.';
+      }
+      if (previous && this.#compiled) this.#applyState(previous);
+      this.#stateReason = 'document';
+      this.#rebuild();
+      this.#stateTransaction = false;
+      this.#schedule();
+    });
   }
   get viewState(): HierarchyViewState {
     return {
       version: 1,
       kind: this.kind,
       pinnedKey:
-        this.#pendingPin !== undefined
-          ? this.#pendingPin
+        this.#restoredPin !== undefined
+          ? this.#restoredPin!
           : this.#runtime?.session.pinned
             ? (this.#runtime.session.active?.key ?? null)
             : null,
@@ -230,21 +275,25 @@ export class HierarchyElement<
     };
   }
   set viewState(value: HierarchyViewState) {
-    const state = parseViewState(value);
-    if (state.kind === 'metric' || state.kind !== this.kind)
-      throw new TypeError(`Expected ${this.kind} view state.`);
-    this.#notifications.invalidate();
-    this.#input?.cancel();
-    this.#applyState(state);
-    this.#stateReason = 'restore';
-    this.#rebuild();
-    this.refresh();
+    this.#kernel.batch(() => {
+      const state = parseViewState(value);
+      if (state.kind === 'metric' || state.kind !== this.kind)
+        throw new TypeError(`Expected ${this.kind} view state.`);
+      this.#notifications.invalidate();
+      this.#kernel.effect(() => this.#input?.cancel());
+      this.#applyState(state);
+      this.#stateReason = 'restore';
+      this.#rebuild();
+      this.refresh();
+    });
   }
   #applyState(state: HierarchyViewState) {
+    this.#viewportRequest = null;
+    this.#pendingReveal = null;
     this.#collapsed = new Set(
       state.collapsed.filter((id) => this.#compiled?.hierarchy.children.get(id)?.length)
     );
-    this.#pendingPin = state.pinnedKey;
+    this.#pendingPin = restoreInspection(this.#runtime?.session ?? null, state.pinnedKey);
     this.#pendingViewport = { ...state.viewport };
   }
   get linkedHighlight() {
@@ -256,11 +305,17 @@ export class HierarchyElement<
   }
   #stateChanged(reason: ViewStateChangeDetail['reason'] = 'interaction') {
     if (this.#stateTransaction) return;
-    const state = this.viewState,
-      key = JSON.stringify(state);
-    if (key === this.#lastState) return;
-    this.#lastState = key;
-    this.#emit('scope-view-state-change', { state, reason } satisfies ViewStateChangeDetail);
+    const state = this.viewState;
+    const snapshot = this.#compiled;
+    const key = JSON.stringify(state);
+    this.#kernel.report(
+      this.#stateReports,
+      { state, reason },
+      () => snapshot === this.#compiled && key === JSON.stringify(this.viewState),
+      (detail) => {
+        this.#dispatch('scope-view-state-change', detail!);
+      }
+    );
   }
   get loading() {
     return this.hasAttribute('loading');
@@ -317,26 +372,31 @@ export class HierarchyElement<
     super.removeEventListener(type, listener, options);
   }
   get viewport(): Readonly<ViewportState> {
-    return this.#viewport.state;
+    return { ...(this.#pendingViewport ?? this.#viewport.state) };
   }
   set viewport(value: ViewportState) {
-    this.#input?.cancel();
-    this.#viewport.set(value);
-    this.#pendingViewport = null;
-    this.#changedViewport();
+    this.#kernel.batch(() => {
+      this.#kernel.effect(() => this.#input?.cancel());
+      this.#viewport.set(value);
+      this.#pendingViewport = null;
+      this.#changedViewport();
+    });
   }
   get collapsed(): string[] {
     return [...this.#collapsed];
   }
   set collapsed(value: Iterable<string>) {
-    const values = new Set(value);
-    for (const id of values)
-      if (!this.#compiled?.hierarchy.byId.has(id)) throw new RangeError(`Unknown node: ${id}`);
-    this.#collapsed = values;
-    this.#input?.cancel();
-    this.#rebuild();
-    this.refresh();
-    this.#emit('scope-collapse-change', { collapsed: this.collapsed });
+    this.#kernel.batch(() => {
+      const values = new Set(value);
+      for (const id of values)
+        if (!this.#compiled?.hierarchy.byId.has(id)) throw new RangeError(`Unknown node: ${id}`);
+      this.#pendingReveal = null;
+      this.#collapsed = values;
+      this.#kernel.effect(() => this.#input?.cancel());
+      this.#rebuild();
+      this.refresh();
+      this.#emit('scope-collapse-change', { collapsed: this.collapsed });
+    });
   }
   /** Current immutable scene; painted interactions are culled, navigation retains the visible tree. */
   get scene(): ChartScene<Source> | null {
@@ -355,66 +415,77 @@ export class HierarchyElement<
   focusNode(id: string, options: { pin?: boolean } = {}) {
     object(options, 'options', ['pin']);
     if (options.pin !== undefined) boolean(options.pin, 'options.pin');
-    this.#input?.cancel();
-    const tree = this.#compiled?.hierarchy;
-    if (!tree?.byId.has(id)) throw new RangeError(`Unknown node: ${id}`);
-    let parent = tree.byId.get(id)?.parentId,
-      expanded = false;
-    while (parent && tree.byId.has(parent)) {
-      expanded = this.#collapsed.delete(parent) || expanded;
-      parent = tree.byId.get(parent)?.parentId;
-    }
-    if (expanded) {
-      this.#rebuild();
-      this.#emit('scope-collapse-change', { collapsed: this.collapsed });
-    }
-    this.#runtime?.paint();
-    const target = this.#view?.byId.get(id)?.interaction;
-    if (!target || !this.#runtime || this.#view?.document.options?.interactive === false) return;
-    this.#reveal(target);
-    this.#runtime.session.inspect(target.key, options.pin ?? false, true);
-    this.#runtime.focus(this.#runtime.session.active);
-    this.#showInspection(null, true);
-    this.#el('.canvas').focus({ preventScroll: true });
+    this.#kernel.batch(() => {
+      const tree = this.#compiled?.hierarchy;
+      if (!tree?.byId.has(id)) throw new RangeError(`Unknown node: ${id}`);
+      const runtime = this.#runtime;
+      if (!runtime || this.#view?.document.options?.interactive === false) return;
+      this.#kernel.effect(() => this.#input?.cancel());
+      let parent = tree.byId.get(id)?.parentId,
+        expanded = false;
+      while (parent && tree.byId.has(parent)) {
+        expanded = this.#collapsed.delete(parent) || expanded;
+        parent = tree.byId.get(parent)?.parentId;
+      }
+      if (expanded) {
+        this.#rebuild();
+        this.#emit('scope-collapse-change', { collapsed: this.collapsed });
+      }
+      const target = this.#view?.byId.get(id)?.interaction;
+      if (!target) return;
+      this.#pendingPin = undefined;
+      runtime.session.setModel(this.#view!.navigation);
+      runtime.session.inspect(target.key, options.pin ?? false, true);
+      this.#pendingReveal = null;
+      if (runtime.session.active) this.#reveal(runtime.session.active);
+      const intent = sessionRevision(runtime.session).intent;
+      this.#kernel.effect(() => {
+        if (runtime !== this.#runtime || intent !== sessionRevision(runtime.session).intent) return;
+        runtime.paint();
+        this.#showInspection(null, true);
+        this.#el('.canvas').focus({ preventScroll: true });
+      });
+    });
   }
   resetViewport() {
-    this.#input?.cancel();
-    this.#viewport.reset();
-    this.#pendingViewport = null;
-    this.#changedViewport();
+    this.#kernel.batch(() => {
+      this.#kernel.effect(() => this.#input?.cancel());
+      this.#viewport.reset();
+      this.#pendingViewport = null;
+      this.#changedViewport();
+    });
   }
   get controls() {
     return visibleControls(this.#root, hierarchyControls, this.#options);
   }
   performAction(action: ScopeChartAction): boolean {
-    if (
-      !readControls(this.#root, hierarchyControls, this.#options).some(
-        (control) => control.action === action && !control.disabled
+    return this.#kernel.batch(() => {
+      if (
+        !readControls(this.#root, hierarchyControls, this.#options).some(
+          (control) => control.action === action && !control.disabled
+        )
       )
-    )
-      return false;
-    if (action === 'inspect') {
-      const id = this.#view?.items[0]?.id;
-      if (id) this.focusNode(id);
-    } else if (action === 'zoom-in' || action === 'zoom-out') {
-      this.#viewport.zoom(action === 'zoom-in' ? 2 : 0.5);
-      this.#changedViewport();
-    } else if (action === 'reset-view') this.resetViewport();
-    else if (action === 'toggle-collapse') {
-      const id = this.#runtime?.session.active?.sources[0]?.id;
-      if (id) this.toggleNode(id);
-    } else if (action === 'toggle-data') {
-      const raw = this.#el('.raw');
-      raw.hidden = !raw.hidden;
-      this.#el('.data').setAttribute('aria-expanded', String(!raw.hidden));
-      this.#el('.data').textContent = raw.hidden ? 'View data' : 'Hide data';
-      this.#table();
-    }
-    this.#notifyControls();
-    return true;
-  }
-  #notifyControls() {
-    this.#controlEvents.notify(this, this.controls);
+        return false;
+      if (action === 'inspect') {
+        const id = this.#view?.items[0]?.id;
+        if (id) this.focusNode(id);
+      } else if (action === 'zoom-in' || action === 'zoom-out') {
+        this.#viewport.zoom(action === 'zoom-in' ? 2 : 0.5);
+        this.#changedViewport();
+      } else if (action === 'reset-view') this.resetViewport();
+      else if (action === 'toggle-collapse') {
+        const id = this.#runtime?.session.active?.sources[0]?.id;
+        if (id) this.toggleNode(id);
+      } else if (action === 'toggle-data') {
+        const raw = this.#el('.raw');
+        raw.hidden = !raw.hidden;
+        this.#el('.data').setAttribute('aria-expanded', String(!raw.hidden));
+        this.#el('.data').textContent = raw.hidden ? 'View data' : 'Hide data';
+        this.#table();
+      }
+      this.#notifyControls();
+      return true;
+    });
   }
   refresh() {
     if (this.#runtime) this.#runtime.refresh();
@@ -422,13 +493,49 @@ export class HierarchyElement<
   }
   #rebuild() {
     this.#view = this.#compiled ? this.createView(this.#compiled, this.#collapsed) : null;
+    const pin = this.#restoredPin;
+    this.#runtime?.session.setModel(this.#view?.navigation ?? null);
+    if (pin !== undefined)
+      this.#pendingPin = restoreInspection(this.#runtime?.session ?? null, pin);
+    // Prepare controller geometry now, while preserving the raw restore until paint or input.
+    const restored = this.#pendingViewport;
+    if (restored && this.scene && this.#view) this.#prepareViewport(this.scene.height);
+    this.#pendingViewport = restored;
   }
   #emit<K extends keyof HierarchyEventDetails<Source, Context>>(
     type: K,
     detail: HierarchyEventDetails<Source, Context>[K]
   ) {
+    const snapshot = this.#compiled;
+    const scene = this.scene;
     this.#notifyControls();
-    this.#dispatch(type, detail);
+    if (type === 'scope-collapse-change') {
+      const value = (detail as HierarchyCollapseChangeDetail).collapsed;
+      this.#kernel.report(
+        this.#collapseReports,
+        value,
+        () =>
+          snapshot === this.#compiled && JSON.stringify(value) === JSON.stringify(this.collapsed),
+        (collapsed) => this.#dispatch('scope-collapse-change', { collapsed: [...collapsed] })
+      );
+      return;
+    }
+    this.#kernel.effect(
+      () => {
+        if (
+          snapshot === this.#compiled &&
+          (type !== 'scope-ready' ||
+            (this.isConnected &&
+              !this.loading &&
+              !this.error &&
+              !this.#error &&
+              scene === this.scene))
+        )
+          this.#dispatch(type, detail);
+      },
+      {},
+      type === 'scope-ready' ? readyPhase : readingPhase
+    );
   }
   #dispatch<K extends keyof HierarchyEventDetails<Source, Context>>(
     type: K,
@@ -437,15 +544,36 @@ export class HierarchyElement<
     this.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
   }
   #changedViewport() {
-    if (
-      !this.#runtime?.session.pinned &&
-      !this.#runtime?.session.keyboardInspection &&
-      !this.#pendingPin
-    )
-      this.#clearInspection();
-    this.#runtime?.refresh();
-    this.#emit('scope-viewport-change', { ...this.viewport });
-    this.#stateChanged();
+    this.#kernel.batch(() => {
+      this.#pendingReveal = null;
+      this.#pendingViewport = null;
+      this.#viewportRequest = {};
+      if (
+        !this.#runtime?.session.pinned &&
+        !this.#runtime?.session.keyboardInspection &&
+        !this.#restoredPin
+      )
+        this.#clearInspection();
+      this.#runtime?.refresh();
+      this.#publishViewport();
+      this.#stateChanged();
+    });
+  }
+  #publishViewport() {
+    const snapshot = this.#compiled,
+      request = this.#viewportRequest;
+    if (!request) return;
+    const value = this.viewport;
+    this.#notifyControls();
+    this.#kernel.report(
+      this.#viewportReports,
+      value,
+      () =>
+        request === this.#viewportRequest &&
+        snapshot === this.#compiled &&
+        sameViewport(value, this.viewport),
+      (viewport) => this.#dispatch('scope-viewport-change', { ...viewport })
+    );
   }
   #schedule() {
     if (!this.isConnected || this.#frame) return;
@@ -506,14 +634,37 @@ export class HierarchyElement<
       },
       { signal }
     );
+    const canvas = this.#el('.canvas');
+    ownInspectionDismissal(canvas, signal);
+    canvas.addEventListener(
+      'keydown',
+      (event) => {
+        if (
+          event.defaultPrevented ||
+          event.key !== 'Escape' ||
+          event.metaKey ||
+          event.ctrlKey ||
+          event.altKey ||
+          this.scene?.interactive === false
+        )
+          return;
+        event.preventDefault();
+        this.#kernel.batch(() => this.#clearInspection('interaction', true));
+      },
+      { signal }
+    );
     this.#root.addEventListener(
       'keydown',
       (event) => {
-        if ((event as KeyboardEvent).key === 'Escape' && this.#runtime?.session.active) {
-          event.preventDefault();
-          this.#clearInspection();
-          this.#el('.canvas').focus({ preventScroll: true });
-        }
+        if (
+          (event as KeyboardEvent).key !== 'Escape' ||
+          event.composedPath().includes(canvas) ||
+          (!this.#runtime?.session.active && this.#restoredPin === undefined)
+        )
+          return;
+        event.preventDefault();
+        this.#clearInspection();
+        canvas.focus({ preventScroll: true });
       },
       { signal }
     );
@@ -545,14 +696,17 @@ export class HierarchyElement<
     this.#schedule();
   }
   disconnectedCallback() {
-    cancelAnimationFrame(this.#frame);
-    this.#frame = 0;
-    this.#mutation?.disconnect();
-    this.#mutation = null;
-    this.#events?.abort();
-    this.#events = null;
-    this.#clearInspection();
-    this.#dispose();
+    this.#kernel.batch(() => {
+      this.#viewportRequest = null;
+      cancelAnimationFrame(this.#frame);
+      this.#frame = 0;
+      this.#mutation?.disconnect();
+      this.#mutation = null;
+      this.#events?.abort();
+      this.#events = null;
+      this.#clearInspection();
+      this.#dispose();
+    });
   }
   attributeChangedCallback(name: string) {
     if (!this.isConnected) return;
@@ -560,11 +714,15 @@ export class HierarchyElement<
     else this.refresh();
   }
   #dispose() {
-    this.#runtime?.dispose();
+    const runtime = this.#runtime,
+      input = this.#input;
     this.#runtime = null;
-    this.#renderedCompiled = null;
-    this.#input?.dispose();
     this.#input = null;
+    this.#pendingReveal = null;
+    this.#kernel.effect(() => {
+      runtime?.dispose();
+      input?.dispose();
+    });
   }
   #status(state: string, message: string | null) {
     this.dataset.state = state;
@@ -575,97 +733,108 @@ export class HierarchyElement<
     this.#notifyControls();
   }
   #render() {
-    const compiled = this.#compiled,
-      view = this.#view;
-    const title = compiled?.document.title ?? '',
-      description = compiled?.document.description ?? '';
-    this.#el('header').hidden = this.#ui.header === false || (!title && !description);
-    this.#el('h2').textContent = title;
-    this.#el('.description').textContent = description;
-    this.#el('.description').hidden = !description;
-    renderToolbar(this.#root, this.#options, hierarchyControls);
-    this.#el('.viewport').style.setProperty(
-      '--scope-chart-content-height',
-      `${(view?.rowCount ?? 0) * (view?.rowHeight ?? 24) + 64}px`
-    );
-    const message = this.error ?? this.#error;
-    const blocked = this.loading || message !== null || !compiled || !view?.items.length;
-    for (const button of this.#root.querySelectorAll<HTMLButtonElement>('.toolbar button'))
-      button.disabled = blocked;
-    this.#table();
-    if (blocked) {
-      const saved = this.loading && compiled && message === null ? this.viewState : null;
-      if (saved) this.#stateTransaction = true;
-      this.#clearInspection();
-      this.#dispose();
-      if (saved) this.#applyState(saved);
-      this.#stateTransaction = false;
-      this.#el('.tree-scroll').hidden = true;
-      this.#el('.summary').hidden = true;
-      const state =
-        message !== null ? 'error' : this.loading ? 'loading' : compiled ? 'empty' : 'idle';
-      this.#status(
-        state,
-        message !== null
-          ? message
-          : this.loading
-            ? 'Loading chart…'
-            : compiled
-              ? 'No nodes returned.'
-              : `Provide a ${this.kind} document.`
+    this.#kernel.batch(() => {
+      const compiled = this.#compiled,
+        view = this.#view;
+      const title = compiled?.document.title ?? '',
+        description = compiled?.document.description ?? '';
+      this.#el('header').hidden = this.#ui.header === false || (!title && !description);
+      this.#el('h2').textContent = title;
+      this.#el('.description').textContent = description;
+      this.#el('.description').hidden = !description;
+      renderToolbar(this.#root, this.#options, hierarchyControls);
+      this.#el('.viewport').style.setProperty(
+        '--scope-chart-content-height',
+        `${(view?.rowCount ?? 0) * (view?.rowHeight ?? 24) + 64}px`
       );
-      this.#stateChanged(this.#stateReason);
-      if (message !== null) this.#emit('scope-error', { message });
-      return;
-    }
-    if (!this.#runtime) {
-      const canvas = this.#el('.canvas');
-      this.#input = new ViewportController(canvas, this.#viewport, {
-        rect: () => this.scene?.rect,
-        enabled: () => this.#view?.document.options?.interactive !== false,
-        onChange: () => this.#changedViewport()
-      });
-      this.#runtime = new ChartRuntime<Source>(canvas, this.#el('.decoration'), {
-        layout: (width, height, measure) => {
-          const current = this.#view!;
-          this.#viewport.configure({
-            contentHeight: current.rowCount * current.rowHeight,
-            visibleHeight: hierarchyViewportHeight(height, this.#ui.axes ?? 'full')
-          });
-          if (this.#pendingViewport) {
-            this.#viewport.set(this.#pendingViewport);
-            this.#pendingViewport = null;
-          }
-          const scene = layoutHierarchy(
-            current,
-            width,
-            height,
-            measure,
-            this.viewport,
-            this.#ui.axes ?? 'full'
-          );
-          this.#renderedCompiled = this.#compiled;
-          return scene;
-        },
-        onNavigate: (target) => this.#reveal(target),
-        inputConsumed: () => this.#input?.consumed ?? false,
-        onInspect: (_value, position) => this.#showInspection(position, true),
-        onError: (error) => {
-          this.#error = error instanceof Error ? error.message : 'Chart rendering failed.';
-          this.#schedule();
-        },
-        onRender: () => this.#rendered()
-      });
-      this.#runtime.linkedHighlight = this.#linkedHighlight;
-    } else this.#runtime.refresh();
+      const message = this.error ?? this.#error;
+      const blocked = this.loading || message !== null || !compiled || !view?.items.length;
+      for (const button of this.#root.querySelectorAll<HTMLButtonElement>('.toolbar button'))
+        button.disabled = blocked;
+      this.#table();
+      if (blocked) {
+        const saved = this.loading && compiled && message === null ? this.viewState : null;
+        if (saved) this.#stateTransaction = true;
+        this.#clearInspection();
+        this.#dispose();
+        if (saved) this.#applyState(saved);
+        this.#stateTransaction = false;
+        this.#el('.tree-scroll').hidden = true;
+        this.#el('.summary').hidden = true;
+        const state =
+          message !== null ? 'error' : this.loading ? 'loading' : compiled ? 'empty' : 'idle';
+        this.#status(
+          state,
+          message !== null
+            ? message
+            : this.loading
+              ? 'Loading chart…'
+              : compiled
+                ? 'No nodes returned.'
+                : `Provide a ${this.kind} document.`
+        );
+        this.#stateChanged(this.#stateReason);
+        if (message !== null) this.#emit('scope-error', { message });
+        return;
+      }
+      if (!this.#runtime) {
+        const canvas = this.#el('.canvas');
+        this.#input = new ViewportController(canvas, this.#viewport, {
+          rect: () => this.scene?.rect,
+          enabled: () => this.#view?.document.options?.interactive !== false,
+          onChange: () => this.#changedViewport()
+        });
+        const runtime = new ChartRuntime<Source>(canvas, this.#el('.decoration'), {
+          layout: (width, height, measure) => {
+            const current = this.#view!;
+            const before = this.viewport,
+              reveal = this.#pendingReveal;
+            this.#pendingReveal = null;
+            this.#prepareViewport(height);
+            if (
+              reveal &&
+              reveal.snapshot === this.#compiled &&
+              reveal.intent === sessionRevision(runtime.session).intent
+            ) {
+              this.#positionNode(reveal.id);
+              if (!sameViewport(before, this.viewport)) this.#viewportRequest = {};
+            }
+            const scene = layoutHierarchy(
+              current,
+              width,
+              height,
+              measure,
+              this.viewport,
+              this.#ui.axes ?? 'full'
+            );
+            return captureScene(scene, this.#compiled!);
+          },
+          onNavigate: (target) => this.#reveal(target),
+          inputConsumed: () => this.#input?.consumed ?? false,
+          onInspect: (_value, position) => this.#showInspection(position, true),
+          onError: (error) => {
+            this.#error = error instanceof Error ? error.message : 'Chart rendering failed.';
+            this.#schedule();
+          },
+          onRender: () => this.#rendered()
+        });
+        this.#runtime = runtime;
+        shareInteraction(runtime.session, this.#kernel);
+        runtime.session.setModel(view.navigation);
+        const pin = this.#restoredPin;
+        if (pin !== undefined) this.#pendingPin = restoreInspection(runtime.session, pin);
+        runtime.linkedHighlight = this.#linkedHighlight;
+      } else this.#runtime.refresh();
+    });
   }
   #rendered() {
     const scene = this.scene,
       view = this.#view,
       compiled = this.#renderedCompiled;
     if (!scene || !view || !compiled) return;
-    if (this.#pendingPin !== undefined) {
-      this.#runtime!.session.restorePin(scene.interactive === false ? null : this.#pendingPin);
+    const pin = this.#restoredPin;
+    if (pin !== undefined) {
+      this.#runtime!.session.restorePin(scene.interactive === false ? null : pin);
       this.#pendingPin = undefined;
       this.#runtime!.focus(this.#runtime!.session.active);
     }
@@ -689,6 +858,8 @@ export class HierarchyElement<
     if (compiled !== this.#compiled || !this.isConnected) return;
     this.#showInspection(null, false, this.#stateReason);
     if (compiled !== this.#compiled || !this.isConnected) return;
+    this.#publishViewport();
+    if (compiled !== this.#compiled || !this.isConnected) return;
     this.#stateChanged(this.#stateReason);
     this.#stateReason = 'reconcile';
     this.#emit('scope-ready', {
@@ -696,24 +867,45 @@ export class HierarchyElement<
       nodes: compiled.hierarchy.sources.length
     });
   }
-  #reveal(target: ChartInteraction<Source>) {
-    const item = this.#view?.byId.get(target.sources[0]?.id);
+  #prepareViewport(height: number) {
+    const view = this.#view!;
+    this.#viewport.configure({
+      contentHeight: view.rowCount * view.rowHeight,
+      visibleHeight: hierarchyViewportHeight(height, this.#ui.axes ?? 'full')
+    });
+    if (this.#pendingViewport) {
+      this.#viewport.set(this.#pendingViewport);
+      this.#pendingViewport = null;
+    }
+  }
+  #positionNode(id: string) {
+    const item = this.#view?.byId.get(id);
     if (!item) return;
-    const before = this.viewport;
     this.#viewport.reveal(
       item.start,
       item.end,
       item.row * this.#view!.rowHeight,
       (item.row + 1) * this.#view!.rowHeight
     );
-    const after = this.viewport;
-    if (
-      before.start !== after.start ||
-      before.end !== after.end ||
-      before.scrollOffset !== after.scrollOffset
-    ) {
-      this.#runtime?.paint();
-      this.#emit('scope-viewport-change', { ...after });
+  }
+  #reveal(target: ChartInteraction<Source>) {
+    const id = target.sources[0]?.id,
+      runtime = this.#runtime;
+    if (!id || !runtime || !this.#view?.byId.has(id)) return;
+    const bounds = this.#el('.canvas').getBoundingClientRect();
+    this.#pendingReveal =
+      bounds.width <= 0 || bounds.height <= 0
+        ? { id, intent: sessionRevision(runtime.session).intent, snapshot: this.#compiled }
+        : null;
+    const height = bounds.height > 0 ? bounds.height : this.scene?.height;
+    if (!height) return;
+    const before = this.viewport;
+    this.#prepareViewport(height);
+    this.#positionNode(id);
+    if (!sameViewport(before, this.viewport)) {
+      this.#viewportRequest = {};
+      this.#kernel.effect(() => runtime.paint());
+      this.#publishViewport();
       this.#stateChanged();
     }
   }
@@ -733,12 +925,14 @@ export class HierarchyElement<
       () => (compiled ? project(compiled, active) : null)
     );
   }
-  #clearInspection() {
-    this.#notifications.invalidate();
-    this.#pendingPin = undefined;
-    this.#runtime?.session.clearInspection();
-    this.#runtime?.focus(null);
-    this.#showInspection(null, false);
+  #clearInspection(reason: ViewStateChangeDetail['reason'] = 'interaction', input = false) {
+    this.#kernel.batch(() => {
+      this.#notifications.invalidate();
+      this.#pendingPin = undefined;
+      this.#pendingReveal = null;
+      this.#runtime?.session.clearInspection();
+      this.#showInspection(null, input, reason);
+    });
   }
   #showInspection(
     position: Position | null,
@@ -746,6 +940,28 @@ export class HierarchyElement<
     reason: ViewStateChangeDetail['reason'] = 'interaction'
   ) {
     const batch = this.#notifications.capture();
+    const silent = this.#stateTransaction;
+    this.#kernel.effect(
+      () => this.#presentInspection(batch, position),
+      this.#readingEffect,
+      0,
+      () => batch.current('inspect')
+    );
+    if (!silent && (!this.#runtime?.session.active || batch.state.inspect.target)) {
+      for (const channel of ['inspect', 'select'] as const)
+        batch.emit(
+          channel,
+          (value, snapshot) => this.#dispatch(`scope-${channel}`, this.#detail(value, snapshot)),
+          channel === 'inspect' && emit
+        );
+    }
+    this.#stateChanged(reason);
+  }
+  #presentInspection(
+    batch: ReturnType<InspectionNotifications<Source, Compiled>['capture']>,
+    position: Position | null
+  ) {
+    this.#runtime?.focus(this.#runtime.session.active);
     const { target: active, pinned } = batch.state.inspect;
     const tooltip = this.#el('.tooltip');
     this.#el('.inspect').toggleAttribute('data-active', pinned);
@@ -776,15 +992,6 @@ export class HierarchyElement<
         if (this.#el('.live').textContent !== reading) this.#el('.live').textContent = reading;
       }
     }
-    if (!this.#stateTransaction) {
-      for (const channel of ['inspect', 'select'] as const)
-        batch.emit(
-          channel,
-          (value, snapshot) => this.#dispatch(`scope-${channel}`, this.#detail(value, snapshot)),
-          { force: channel === 'inspect' && emit, before: () => this.#notifyControls() }
-        );
-    }
-    this.#stateChanged(reason);
   }
   #placeTooltip(position: Position | null = null) {
     const active = this.#runtime?.session.active;

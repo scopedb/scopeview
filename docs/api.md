@@ -101,6 +101,8 @@ chart.addEventListener('scope-error', (event) => {
 
 For every family, `scope-select` describes the persistent selection: its `key` and `context` are `null` and `pinned` is `false` when keyboard navigation or dismissal clears selection, even while `scope-inspect` reports a transient reading. When data is replaced, preserved selections emit updated context after the replacement paints, and removed or cleared selections emit `null`. Track inspection events rather than treating `scope-ready`, which also fires after repainting, as a selection invalidation signal.
 
+The shared [inspection notification contract](headless.md#inspection-notifications) defines snapshot lifetime, synchronous nested setters, event/getter consistency, coalescing, callback failures and notification order. In particular, an event keeps its captured context even when an earlier listener has already committed a newer state that public getters now expose.
+
 | Event                           | Detail                                                             |
 | ------------------------------- | ------------------------------------------------------------------ |
 | `scope-ready`                   | Rendered visualization and row/node counts; may fire after repaint |

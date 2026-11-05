@@ -88,6 +88,96 @@ async function mount(page: Page, kind: 'reading' | 'chart', delegated = false) {
 }
 
 for (const kind of ['reading', 'chart'] as const) {
+  test(`${kind} keeps a retained disposed session independent of the next runtime on its Canvas`, async ({
+    page
+  }) => {
+    await mount(page, kind);
+    const result = await page.evaluate(async (kind) => {
+      const old = window.lifecycleFixture.runtime;
+      const oldSession = old.session;
+      const root = document.getElementById('lifecycle-fixture')!.shadowRoot!;
+      const canvas = root.querySelector<HTMLElement>('.canvas')!;
+      const decoration = root.querySelector<HTMLElement>('.decoration')!;
+      const frame = old.model!;
+      const scene = (key: string): ChartScene<Source> => {
+        const target = {
+          key,
+          sources: [{ value: key }],
+          tooltip: { rows: [] },
+          anchor: { x: 50, y: 50 },
+          points: []
+        };
+        return {
+          ...frame,
+          marks: [],
+          interactions: [target],
+          interactionByKey: new Map([[key, target]])
+        };
+      };
+      old.dispose();
+      const module =
+        kind === 'chart' ? '/src/runtime/chart-runtime.ts' : '/src/runtime/reading-runtime.ts';
+      const api = await import(module);
+      const next: ChartRuntime<Source> | ReadingRuntime<Source> =
+        kind === 'chart'
+          ? new api.ChartRuntime(canvas, decoration, { layout: () => scene('new') })
+          : new api.ReadingRuntime(canvas, decoration, { layout: () => scene('new') });
+      next.paint();
+      next.session.inspect('new', true, true);
+      oldSession.setModel(scene('old'));
+      oldSession.inspect('old', true, true);
+      const result = { current: next.session.selected?.key, retained: oldSession.selected?.key };
+      next.dispose();
+      return result;
+    }, kind);
+    expect(result).toEqual({ current: 'new', retained: 'old' });
+  });
+
+  for (const throws of [false, true]) {
+    test(`${kind} discards a layout superseded by a semantic model command, throws=${throws}`, async ({
+      page
+    }) => {
+      await mount(page, kind);
+      const result = await page.evaluate((throws) => {
+        const runtime = window.lifecycleFixture.runtime;
+        const previous = runtime.model!;
+        const scene = (key: string): ChartScene<Source> => {
+          const target = {
+            key,
+            sources: [{ value: key }],
+            tooltip: { rows: [] },
+            anchor: { x: 50, y: 50 },
+            points: []
+          };
+          return {
+            ...previous,
+            marks: [],
+            ariaLabel: key,
+            interactions: [target],
+            interactionByKey: new Map([[key, target]])
+          };
+        };
+        const latest = scene('latest');
+        runtime.paint(() => {
+          runtime.session.setModel(latest);
+          runtime.session.inspect('latest', true, true);
+          if (throws) throw new Error('Obsolete layout');
+          return scene('obsolete');
+        });
+        const staleDiscarded = runtime.model === previous;
+        runtime.paint(() => latest);
+        return {
+          staleDiscarded,
+          selected: runtime.session.selected?.key,
+          painted: runtime.model?.ariaLabel
+        };
+      }, throws);
+      expect(result).toEqual({ staleDiscarded: true, selected: 'latest', painted: 'latest' });
+    });
+  }
+}
+
+for (const kind of ['reading', 'chart'] as const) {
   for (const key of ['Enter', 'End']) {
     test(`${kind} commits ${key} before navigation can paint and dismiss the reading`, async ({
       page
