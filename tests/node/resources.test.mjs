@@ -24,7 +24,11 @@ for (const [group, cases] of Object.entries(corpus)) {
           true,
           JSON.stringify(validate.errors)
         );
-      } else assert.throws(() => compileVisualization(document), { name: 'ChartValidationError' });
+      } else
+        assert.throws(() => compileVisualization(document), {
+          name: 'ChartValidationError',
+          ...(name === 'cell count' ? { path: 'data.rows' } : {})
+        });
     });
 }
 

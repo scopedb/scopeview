@@ -304,13 +304,16 @@ export function parityCorpus(limits, entityLimits) {
   interval.spans[1].endTimeNs = '0';
   sem('interval order', interval);
   const cells = clone();
-  cells.data.fields = Array.from({ length: limits.columns }, (_, i) => ({
+  cells.data.fields = Array.from({ length: 50 }, (_, i) => ({
     name: `n${i}`,
-    data_type: 'number'
+    data_type: i === 0 ? 'string' : 'number'
   }));
-  cells.data.rows = Array.from({ length: Math.floor(limits.cells / limits.columns) + 1 }, () =>
-    Array(limits.columns).fill('1')
+  cells.spec.encoding = { category: 'n0', value: 'n1' };
+  cells.data.rows = Array.from({ length: limits.cells / cells.data.fields.length }, () =>
+    Array(cells.data.fields.length).fill('1')
   );
+  positive.push({ name: 'cell count boundary', document: structuredClone(cells) });
+  cells.data.rows.push(Array(cells.data.fields.length).fill('1'));
   sem('cell count', cells);
   sem('astral UTF-16 limit', { ...clone(), title: '😀'.repeat(limits.text / 2 + 1) });
   return { positive, structural, semantic };
