@@ -184,6 +184,8 @@ for (const entry of inspectionEntries) {
     }) => {
       const result = await page.evaluate(async () => {
         const f = window.notificationFixture;
+        const canvas = f.root.querySelector('canvas');
+        const connectedBefore = canvas?.isConnected ?? false;
         const module = '/tests/browser/fixtures/inspection-matrix.ts';
         const { inspectionValue }: typeof import('./fixtures/inspection-matrix.js') = await import(
           module
@@ -219,7 +221,8 @@ for (const entry of inspectionEntries) {
           disposed,
           disposal,
           repeated: f.events,
-          connected: !!f.host.querySelector('canvas')
+          connectedBefore,
+          connected: canvas?.isConnected ?? false
         };
       });
       expect(
@@ -227,6 +230,7 @@ for (const entry of inspectionEntries) {
       ).toEqual([null]);
       expect(result.empty.every((event) => event.context === null)).toBe(true);
       expect(result.disposed).toBe(true);
+      expect(result.connectedBefore).toBe(true);
       expect(result.disposal.filter((event) => event.context !== null)).toHaveLength(1);
       expect(result.repeated).toEqual([]);
       expect(result.connected).toBe(false);

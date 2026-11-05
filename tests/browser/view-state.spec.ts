@@ -180,16 +180,19 @@ test('temporary loading and repaint preserve durable state, and restoration does
   page
 }) => {
   await ready(page);
-  await page.evaluate(() => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const changes = await page.evaluate(async () => {
+    const counts: Record<string, number> = {};
     for (const id of ['activity', 'trace', 'profile']) {
       const chart = document.getElementById(id) as
         | ScopeChartElement
         | ScopeTraceElement
         | ScopeFlameElement;
-      let changes = 0;
+      counts[id] = 0;
       chart.addEventListener('scope-view-state-change', (event) => {
-        changes++;
-        if (changes > 10) throw new Error('View state feedback loop');
+        counts[id]++;
+        if (counts[id] > 10) throw new Error('View state feedback loop');
         const detail = (event as CustomEvent<ViewStateChangeDetail>).detail;
         chart.viewState = detail.state as typeof chart.viewState;
       });
@@ -203,7 +206,12 @@ test('temporary loading and repaint preserve durable state, and restoration does
               : 'profile:decode'
       } as typeof chart.viewState;
     }
+    await new Promise<void>((resolve) =>
+      requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+    );
+    return counts;
   });
+  expect(changes).toEqual({ activity: 1, trace: 1, profile: 1 });
   for (const id of ['activity', 'trace', 'profile'])
     await expect(page.locator(`#${id} .tooltip`)).toContainText(
       id === 'activity' ? 'Selected' : 'Pinned'
@@ -236,6 +244,7 @@ test('temporary loading and repaint preserve durable state, and restoration does
       )
     )
   ).toEqual(before);
+  expect(errors).toEqual([]);
 });
 
 test('linked hover draws a peer guide without pinning, moving focus or opening peer inspectors', async ({
