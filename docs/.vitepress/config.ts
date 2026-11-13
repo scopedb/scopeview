@@ -1,3 +1,5 @@
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitepress';
 import { nav, sidebar } from './navigation.js';
@@ -6,13 +8,70 @@ const repository = 'https://github.com/scopedb/scopeview';
 const siteUrl = 'https://scopeview.scopedb.io';
 const siteTitle = 'ScopeView';
 const siteDescription =
-  'Small Canvas charts with exact source readings and no runtime dependencies.';
+  'Exact telemetry charts for coding agents and apps: metrics, traces, and profiles under 39 KiB with zero runtime dependencies.';
 const ogImageUrl = `${siteUrl}/og-image.png`;
 const ogImageAlt =
-  'ScopeView — Time-series charts with exact readings. Small Canvas charts for metrics, logs, and sparklines.';
+  'ScopeView — Exact telemetry charts for coding agents and apps: metrics, traces, and profiles.';
 const base = process.env.SCOPEVIEW_DOCS_BASE || '/';
 if (!base.startsWith('/') || !base.endsWith('/')) {
   throw new Error('SCOPEVIEW_DOCS_BASE must start and end with a slash, for example /scopeview/.');
+}
+
+const landingFixtures = ['trace', 'line', 'profile'] as const;
+type LandingFixture = (typeof landingFixtures)[number];
+const examplesDir = fileURLToPath(new URL('../../examples/documents/', import.meta.url));
+const embedModuleUrl = new URL('../../node/embed.mjs', import.meta.url).href;
+
+async function renderFixtureHTML(document: unknown): Promise<string> {
+  const mod = (await import(/* @vite-ignore */ embedModuleUrl)) as {
+    createEmbed: (input: unknown, options?: Record<string, unknown>) => Promise<string>;
+  };
+  return mod.createEmbed(document, { format: 'html', theme: 'system' });
+}
+
+async function readFixturePair(name: LandingFixture): Promise<{ json: string; html: string }> {
+  const json = await readFile(join(examplesDir, `${name}.json`), 'utf8');
+  const html = await renderFixtureHTML(JSON.parse(json));
+  return { json, html };
+}
+
+function scopeviewLandingDownloads() {
+  return {
+    name: 'scopeview-landing-downloads',
+    configureServer(server: {
+      middlewares: {
+        use: (
+          handler: (
+            req: { url?: string },
+            res: { setHeader: (name: string, value: string) => void; end: (body: string) => void },
+            next: (error?: unknown) => void
+          ) => void
+        ) => void;
+      };
+    }) {
+      server.middlewares.use(async (req, res, next) => {
+        const rawUrl = req.url?.split('?')[0] ?? '';
+        const stripped =
+          base !== '/' && rawUrl.startsWith(base) ? `/${rawUrl.slice(base.length)}` : rawUrl;
+        const match = /^\/downloads\/(trace|line|profile)\.(json|html)$/.exec(stripped);
+        if (!match) {
+          next();
+          return;
+        }
+        try {
+          const [, name, ext] = match as unknown as [string, LandingFixture, 'json' | 'html'];
+          const pair = await readFixturePair(name);
+          res.setHeader(
+            'Content-Type',
+            ext === 'json' ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8'
+          );
+          res.end(ext === 'json' ? pair.json : pair.html);
+        } catch (error) {
+          next(error);
+        }
+      });
+    }
+  };
 }
 
 export default defineConfig({
@@ -27,6 +86,7 @@ export default defineConfig({
   outDir: fileURLToPath(new URL('../../.local/docs-site', import.meta.url)),
   cacheDir: fileURLToPath(new URL('../../.local/docs-cache', import.meta.url)),
   vite: {
+    plugins: [scopeviewLandingDownloads()],
     build: {
       chunkSizeWarningLimit: 1000
     }
@@ -122,5 +182,18 @@ export default defineConfig({
         return renderLink(tokens, index, options, env, self);
       };
     }
+  },
+  async buildEnd(siteConfig) {
+    const downloadsDir = join(siteConfig.outDir, 'downloads');
+    await mkdir(downloadsDir, { recursive: true });
+    await Promise.all(
+      landingFixtures.map(async (name) => {
+        const pair = await readFixturePair(name);
+        await Promise.all([
+          writeFile(join(downloadsDir, `${name}.json`), pair.json, 'utf8'),
+          writeFile(join(downloadsDir, `${name}.html`), pair.html, 'utf8')
+        ]);
+      })
+    );
   }
 });
