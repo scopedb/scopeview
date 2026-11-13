@@ -20,4 +20,4 @@ export interface InteractionHost {
   cleanup(callback: () => void): void;
 }
 /** Shared by the ESM view entries and the explicitly imported interaction module. */
-export const interactionHosts = new WeakMap<object, InteractionHost>();
+export const interactionHosts = new WeakMap<object, InteractionHost | undefined>();

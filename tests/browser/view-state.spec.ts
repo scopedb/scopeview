@@ -61,7 +61,7 @@ test('hierarchy state restores before mount, clamps scroll after layout and pres
   page
 }) => {
   await ready(page);
-  await page.evaluate(() => {
+  const pending = await page.evaluate(() => {
     const original = document.querySelector<ScopeTraceElement>('#trace')!;
     const chart = document.createElement('scope-trace');
     chart.id = 'restored-trace';
@@ -73,8 +73,12 @@ test('hierarchy state restores before mount, clamps scroll after layout and pres
       viewport: { start: 0.1, end: 0.8, scrollOffset: 1000 },
       collapsed: ['worker', 'missing']
     };
+    const pending = chart.viewState.viewport;
+    chart.viewState.viewport.scrollOffset = 0;
     document.querySelector('main')!.append(chart);
+    return pending;
   });
+  expect(pending).toEqual({ start: 0.1, end: 0.8, scrollOffset: 1000 });
   const chart = page.locator('#restored-trace');
   await expect(chart).toHaveAttribute('data-state', 'ready');
   await expect(chart.locator('.tooltip')).toContainText('1790643600014000001');

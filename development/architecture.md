@@ -51,15 +51,13 @@ Keep data and compilation independent of browser globals. Views share Canvas and
 
 ## State and lifecycle
 
-Reading, persistent selection, keyboard focus, ranges and viewports have distinct owners. Updates reconcile compatible targets; removed sources cannot retain stale selection. Invalid headless updates preserve the previous figure. Asynchronous report updates validate before loading and prevent stale downloads from overwriting newer data.
+The internal `RuntimeLifecycle` base owns Canvas measurement, layout invalidation, frame scheduling, resize/font/DPR listeners, error recovery and resource disposal. `ChartSession` retains its existing state and public methods; each runtime keeps its own session. Components share a DOM-free notification queue with their runtime, not the session's state. Optional ranges, links and viewport controllers stay outside the base and small headless runtime.
 
-The internal `RuntimeLifecycle` base owns Canvas measurement, layout invalidation, frame scheduling, resize/font/DPR listeners, error recovery and resource disposal. `ReadingRuntime` and `ChartRuntime` retain their own sessions, input handling and paint-state projection. The base does not import range, link or viewport controllers, so sharing lifecycle code does not pull optional interaction capabilities into headless views.
+`InspectionNotifications` compares snapshot, key, series and pin state independently for inspect/select. The shared queue commits commands before effects and completes each broadcast before publishing nested changes. Reports validate their captured state, coalesce superseded values and preserve eligible work after observer failures. The public [notification contract](../docs/headless.md#inspection-notifications) defines ordering and synchronous getter behavior.
 
-Family-owned inspection context projectors expose exact source values, field roles and ancestry to headless callbacks and component events. Shared context types and opaque document snapshot identity live in `core/inspection-context.ts`. Scalar metadata is attached directly, while source objects and ancestor chains are cloned on first read so unread hover events avoid deep copies and retained contexts keep their original snapshot.
+Family-owned context projectors retain exact source values and ancestry. Completed scenes retain their compiled source separately from a pending document; renderer wrappers may reuse a scene without changing that ownership. Runtime layout and session model revisions reject obsolete results after a nested command. Hierarchy focus resolves semantic targets before painting and retains a snapshot-scoped positioning intent while hidden.
 
-The DOM-free `InspectionNotifications` coordinator in `core/inspection-notifications.ts` owns notification identity (`snapshot`, `key`, `series`, `pinned`), deduplication and reentrancy across all families and browser entries. It retains the last delivered state across loading and document replacements so reconciled selections report updated snapshots and cleared, failed or disconnected states clear once. Delivery commits before invoking host callbacks, and nested state changes wait for the current broadcast to finish before revalidating and draining in order.
-
-Views own their child DOM; components release runtime resources on disconnect. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
+Views own their child DOM; components release runtime resources on disconnect. Invalid headless updates preserve the previous figure; headless disposal silently cancels pending callbacks. Shared tokens and the [accepted design baseline](design-baseline.md) govern paint and reading behavior.
 
 See [custom rendering](../docs/canvas-infra.md) for low-level consumers and [development](../CONTRIBUTING.md) for tests, scripts and packaging.
 
