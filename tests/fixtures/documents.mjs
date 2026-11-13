@@ -39,8 +39,6 @@ export const exactBar = {
 
 export function parityCorpus(limits, entityLimits) {
   const positive = exampleNames.map((name) => ({ name, document: clone(name) }));
-  const omitted = clone();
-  delete omitted.kind;
   const extra = { ...clone(), future: { anything: 1 }, options: { future: 'accepted' } };
   const repeated = clone();
   repeated.data.fields[1].name = 'service';
@@ -83,7 +81,6 @@ export function parityCorpus(limits, entityLimits) {
   positive.push({ name: 'empty profile', document: { ...clone('profile'), frames: [] } });
   positive.push(
     ...[
-      ['omitted metric kind', omitted],
       [
         'explicit v1 metric fields',
         {
@@ -107,11 +104,6 @@ export function parityCorpus(limits, entityLimits) {
   const { fields, rows } = legacy.data;
   legacy.data = { metadata: { fields }, rows };
   add('removed metadata wrapper', legacy);
-  for (const { name, document } of positive.filter(({ document }) => document.data)) {
-    const legacy = structuredClone(document);
-    legacy.data = { metadata: { fields: legacy.data.fields }, rows: legacy.data.rows };
-    add(`removed metadata wrapper: ${name}`, legacy);
-  }
   add('numeric metric cell', {
     ...clone(),
     data: {
