@@ -1,7 +1,9 @@
 name = "scopeview-docs"
+main = "docs/.vitepress/worker.mjs"
 compatibility_date = "2026-04-01"
 workers_dev = false
 preview_urls = true
+tail_consumers = [{ service = "scopedb-tail" }]
 
 [[routes]]
 pattern = "scopeview.scopedb.io"
@@ -11,8 +13,19 @@ custom_domain = true
 command = "pnpm docs:build"
 
 [assets]
+binding = "ASSETS"
 directory = ".local/docs-site"
 not_found_handling = "404-page"
+run_worker_first = [
+  "/*",
+  "!/assets/*",
+  "!/vp-icons.css",
+  "!/hashmap.json",
+  "!/*.png",
+  "!/*.svg",
+  "!/*.ico",
+  "!/*.woff2"
+]
 
 [observability]
-enabled = true
+enabled = false
