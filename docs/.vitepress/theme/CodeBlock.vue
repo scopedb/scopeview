@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useData } from 'vitepress';
-import type { SourceLanguage } from './demo-source.js';
+import type { HighlightLanguage } from './highlight.js';
 
-const props = defineProps<{ code: string; language: SourceLanguage; label: string }>();
+const props = defineProps<{ code: string; language: HighlightLanguage; label: string }>();
 const { isDark } = useData();
 const mounted = ref(false);
 const highlighted = ref('');

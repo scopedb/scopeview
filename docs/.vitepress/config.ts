@@ -1,18 +1,80 @@
+import { mkdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitepress';
+import { type LandingScenarioId, landingScenarios } from './landing-data.js';
 import { nav, sidebar } from './navigation.js';
 
 const repository = 'https://github.com/scopedb/scopeview';
 const siteUrl = 'https://scopeview.scopedb.io';
 const siteTitle = 'ScopeView';
 const siteDescription =
-  'Small Canvas charts with exact source readings and no runtime dependencies.';
+  'Small Canvas charts, trace timelines, and flame graphs with exact source readings and no runtime dependencies.';
 const ogImageUrl = `${siteUrl}/og-image.png`;
 const ogImageAlt =
-  'ScopeView — Time-series charts with exact readings. Small Canvas charts for metrics, logs, and sparklines.';
+  'ScopeView — Small Canvas charts, trace timelines, and flame graphs with exact source readings.';
 const base = process.env.SCOPEVIEW_DOCS_BASE || '/';
 if (!base.startsWith('/') || !base.endsWith('/')) {
   throw new Error('SCOPEVIEW_DOCS_BASE must start and end with a slash, for example /scopeview/.');
+}
+
+const landingFixtures = landingScenarios.map((scenario) => scenario.id);
+const embedModuleUrl = new URL('../../node/embed.mjs', import.meta.url).href;
+
+async function renderFixtureHTML(document: unknown): Promise<string> {
+  const mod = (await import(/* @vite-ignore */ embedModuleUrl)) as {
+    createEmbed: (input: unknown, options?: Record<string, unknown>) => Promise<string>;
+  };
+  return mod.createEmbed(document, { format: 'html', theme: 'system' });
+}
+
+async function readFixturePair(name: LandingScenarioId): Promise<{ json: string; html: string }> {
+  const scenario = landingScenarios.find((item) => item.id === name);
+  if (!scenario) {
+    throw new Error(`Unknown landing fixture: ${name}`);
+  }
+  const json = `${JSON.stringify(scenario.document, null, 2)}\n`;
+  const html = await renderFixtureHTML(scenario.document);
+  return { json, html };
+}
+
+function scopeviewLandingDownloads() {
+  return {
+    name: 'scopeview-landing-downloads',
+    configureServer(server: {
+      middlewares: {
+        use: (
+          handler: (
+            req: { url?: string },
+            res: { setHeader: (name: string, value: string) => void; end: (body: string) => void },
+            next: (error?: unknown) => void
+          ) => void
+        ) => void;
+      };
+    }) {
+      server.middlewares.use(async (req, res, next) => {
+        const rawUrl = req.url?.split('?')[0] ?? '';
+        const stripped =
+          base !== '/' && rawUrl.startsWith(base) ? `/${rawUrl.slice(base.length)}` : rawUrl;
+        const match = /^\/downloads\/(trace|line|profile)\.(json|html)$/.exec(stripped);
+        if (!match) {
+          next();
+          return;
+        }
+        try {
+          const [, name, ext] = match as unknown as [string, LandingScenarioId, 'json' | 'html'];
+          const pair = await readFixturePair(name);
+          res.setHeader(
+            'Content-Type',
+            ext === 'json' ? 'application/json; charset=utf-8' : 'text/html; charset=utf-8'
+          );
+          res.end(ext === 'json' ? pair.json : pair.html);
+        } catch (error) {
+          next(error);
+        }
+      });
+    }
+  };
 }
 
 export default defineConfig({
@@ -27,6 +89,7 @@ export default defineConfig({
   outDir: fileURLToPath(new URL('../../.local/docs-site', import.meta.url)),
   cacheDir: fileURLToPath(new URL('../../.local/docs-cache', import.meta.url)),
   vite: {
+    plugins: [scopeviewLandingDownloads()],
     build: {
       chunkSizeWarningLimit: 1000
     }
@@ -122,5 +185,18 @@ export default defineConfig({
         return renderLink(tokens, index, options, env, self);
       };
     }
+  },
+  async buildEnd(siteConfig) {
+    const downloadsDir = join(siteConfig.outDir, 'downloads');
+    await mkdir(downloadsDir, { recursive: true });
+    await Promise.all(
+      landingFixtures.map(async (name) => {
+        const pair = await readFixturePair(name);
+        await Promise.all([
+          writeFile(join(downloadsDir, `${name}.json`), pair.json, 'utf8'),
+          writeFile(join(downloadsDir, `${name}.html`), pair.html, 'utf8')
+        ]);
+      })
+    );
   }
 });

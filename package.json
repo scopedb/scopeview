@@ -146,7 +146,7 @@
     "verify": "pnpm lint && pnpm check && pnpm test && pnpm build && pnpm test:node && pnpm test:bundle && pnpm test:browser && pnpm test:package --artifact-output .local/releases/npm",
     "tokens:generate": "node scripts/tokens.mjs",
     "docs:dev": "vitepress dev docs --host 127.0.0.1",
-    "docs:build": "vitepress build docs",
+    "docs:build": "pnpm build && vitepress build docs",
     "docs:preview": "vitepress preview docs --host 127.0.0.1",
     "docs:deploy": "wrangler deploy",
     "test:node": "node --test tests/node/*.test.mjs",

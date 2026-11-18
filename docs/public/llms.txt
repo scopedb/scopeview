@@ -1,0 +1,32 @@
+# ScopeView
+
+> Small Canvas charts, trace timelines, and flame graphs with exact source readings and no runtime dependencies (`@scopedb/scopeview`).
+
+ScopeView turns structured `v1` telemetry documents (`line`, `area`, `bar`, `horizontal-bar`, `scatter`, `pie`, `top-list`, `treemap`, `big-number`, `trace`, `profile`) into standalone offline HTML reports or lightweight browser Canvas views without rounding 64-bit integers, collapsing sub-millisecond nanoseconds, or coercing `null` gaps to `0`.
+
+## Agent & CLI Workflow
+
+Requires Node.js 24+. Install globally (`npm install -g @scopedb/scopeview`) or invoke via `npx @scopedb/scopeview`:
+
+1. Inspect the versioned JSON Schema: `scopeview schema > schema.json`
+2. Print a canonical example document: `scopeview example trace > trace.json` (valid names: `line`, `area`, `bar`, `horizontal-bar`, `scatter`, `pie`, `top-list`, `treemap`, `big-number`, `trace`, `profile`)
+3. Validate generated JSON before rendering: `scopeview validate report.json --json`
+4. Render a standalone zero-dependency HTML report: `scopeview render report.json -o report.html --json`
+
+## Data & Precision Invariants
+
+- All document inputs follow the `version: 1` envelope (`kind` for `trace` and `profile`, optional `title` and `description`, plus `data` + `spec`, `spans`, or `frames`).
+- Numeric values and timestamps can be encoded as strings so `int64`, `uint64`, high-precision decimals, and nanosecond epochs (`> 2^53 - 1`) survive JSON parsing without IEEE-754 rounding.
+- Metric series preserve explicit `null` slots as data gaps instead of coercing missing observations to `0`.
+- Trace spans preserve `startTimeNs` and `endTimeNs` exact nanosecond strings (including `1 ns` and `0 ns` spans), and CPU profiles preserve `BigInt` frame weights (`selfWeight`) alongside `file` and `line` metadata.
+
+## Canonical Docs & Reproducible Fixtures
+
+- Homepage: https://scopeview.scopedb.io/
+- CLI Reference: https://scopeview.scopedb.io/cli.html
+- Getting Started: https://scopeview.scopedb.io/getting-started.html
+- Interactive Examples: https://scopeview.scopedb.io/examples.html
+- Downloadable Trace Fixture (JSON / HTML): https://scopeview.scopedb.io/downloads/trace.json and https://scopeview.scopedb.io/downloads/trace.html
+- Downloadable Metric Line Fixture (JSON / HTML): https://scopeview.scopedb.io/downloads/line.json and https://scopeview.scopedb.io/downloads/line.html
+- Downloadable Profile Fixture (JSON / HTML): https://scopeview.scopedb.io/downloads/profile.json and https://scopeview.scopedb.io/downloads/profile.html
+- GitHub Releases & Package: https://github.com/scopedb/scopeview/releases

@@ -102,3 +102,9 @@
   color: var(--vp-c-brand-1);
   text-decoration-color: var(--vp-c-brand-1);
 }
+
+/* Give the custom landing page navbar a crisp 1px architectural divider. */
+.sv-home-page .VPNavBar {
+  border-bottom: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg);
+}
