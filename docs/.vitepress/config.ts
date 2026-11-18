@@ -1,25 +1,24 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitepress';
+import { type LandingScenarioId, landingScenarios } from './landing-data.js';
 import { nav, sidebar } from './navigation.js';
 
 const repository = 'https://github.com/scopedb/scopeview';
 const siteUrl = 'https://scopeview.scopedb.io';
 const siteTitle = 'ScopeView';
 const siteDescription =
-  'Exact telemetry charts for coding agents and apps: metrics, traces, and profiles under 39 KiB with zero runtime dependencies.';
+  'Small Canvas charts, trace timelines, and flame graphs with exact source readings and no runtime dependencies.';
 const ogImageUrl = `${siteUrl}/og-image.png`;
 const ogImageAlt =
-  'ScopeView — Exact telemetry charts for coding agents and apps: metrics, traces, and profiles.';
+  'ScopeView — Small Canvas charts, trace timelines, and flame graphs with exact source readings.';
 const base = process.env.SCOPEVIEW_DOCS_BASE || '/';
 if (!base.startsWith('/') || !base.endsWith('/')) {
   throw new Error('SCOPEVIEW_DOCS_BASE must start and end with a slash, for example /scopeview/.');
 }
 
-const landingFixtures = ['trace', 'line', 'profile'] as const;
-type LandingFixture = (typeof landingFixtures)[number];
-const examplesDir = fileURLToPath(new URL('../../examples/documents/', import.meta.url));
+const landingFixtures = landingScenarios.map((scenario) => scenario.id);
 const embedModuleUrl = new URL('../../node/embed.mjs', import.meta.url).href;
 
 async function renderFixtureHTML(document: unknown): Promise<string> {
@@ -29,9 +28,13 @@ async function renderFixtureHTML(document: unknown): Promise<string> {
   return mod.createEmbed(document, { format: 'html', theme: 'system' });
 }
 
-async function readFixturePair(name: LandingFixture): Promise<{ json: string; html: string }> {
-  const json = await readFile(join(examplesDir, `${name}.json`), 'utf8');
-  const html = await renderFixtureHTML(JSON.parse(json));
+async function readFixturePair(name: LandingScenarioId): Promise<{ json: string; html: string }> {
+  const scenario = landingScenarios.find((item) => item.id === name);
+  if (!scenario) {
+    throw new Error(`Unknown landing fixture: ${name}`);
+  }
+  const json = `${JSON.stringify(scenario.document, null, 2)}\n`;
+  const html = await renderFixtureHTML(scenario.document);
   return { json, html };
 }
 
@@ -59,7 +62,7 @@ function scopeviewLandingDownloads() {
           return;
         }
         try {
-          const [, name, ext] = match as unknown as [string, LandingFixture, 'json' | 'html'];
+          const [, name, ext] = match as unknown as [string, LandingScenarioId, 'json' | 'html'];
           const pair = await readFixturePair(name);
           res.setHeader(
             'Content-Type',
