@@ -3,6 +3,12 @@ import type { ChartInteraction, RenderModel } from './scene.js';
 
 export type InspectionNavigation = 'Home' | 'End' | 'next' | 'previous';
 
+// Internal revisions invalidate work captured before a nested public session command.
+const revisions = new WeakMap<object, { model: number; intent: number }>();
+export function sessionRevision(session: object) {
+  return revisions.get(session)!;
+}
+
 /** Ephemeral state shared by Web Components, framework hosts and chart families. */
 export class ChartSession<Source = ResultRow> {
   #model: RenderModel<Source> | null = null;
@@ -17,7 +23,9 @@ export class ChartSession<Source = ResultRow> {
   #indices = new Map<string, number>();
 
   /** Freeze retains the original pin contract; compare separates hover and selection. */
-  constructor(readonly inspectionMode: 'freeze' | 'compare' = 'freeze') {}
+  constructor(readonly inspectionMode: 'freeze' | 'compare' = 'freeze') {
+    revisions.set(this, { model: 0, intent: 0 });
+  }
 
   get active(): ChartInteraction<Source> | null {
     return this.#active;
@@ -54,6 +62,7 @@ export class ChartSession<Source = ResultRow> {
   /** Reconcile by stable identity when layout, size or visible marks change. */
   setModel(model: RenderModel<Source> | null) {
     if (model === this.#model) return;
+    sessionRevision(this).model++;
     this.#model = model;
     this.#hovered = this.#hovered ? (model?.interactionByKey.get(this.#hovered.key) ?? null) : null;
     this.#indices = new Map(model?.interactions.map((value, index) => [value.key, index]) ?? []);
@@ -73,6 +82,7 @@ export class ChartSession<Source = ResultRow> {
     )
       this.#selectedSeries = null;
     if (!this.#active) {
+      sessionRevision(this).intent++;
       this.#tooltipLocked = false;
       this.#series = null;
       this.#keyboardInspection = false;
@@ -95,6 +105,7 @@ export class ChartSession<Source = ResultRow> {
     )
       return false;
     if (this.#keyboardInspection && key === null && !pin && !keyboard) return false;
+    sessionRevision(this).intent++;
     if (pin && value?.key === this.#selected?.key) {
       this.clearInspection();
       return true;
@@ -110,6 +121,7 @@ export class ChartSession<Source = ResultRow> {
     return true;
   }
   clearInspection() {
+    sessionRevision(this).intent++;
     this.#active = null;
     this.#hovered = null;
     this.#selected = null;
@@ -162,6 +174,7 @@ export class ChartSession<Source = ResultRow> {
   reset() {
     this.clearInspection();
     this.#hidden.clear();
+    sessionRevision(this).model++;
     this.#model = null;
     this.#indices.clear();
   }

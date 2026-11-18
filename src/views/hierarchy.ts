@@ -1,3 +1,5 @@
+import { captureScene } from '../core/scene-snapshot.js';
+import { interactionFor } from '../core/interaction.js';
 import { parseViewOptions } from './options.js';
 import {
   hierarchyViewportHeight,
@@ -25,32 +27,30 @@ export function createHierarchy<
 ): ChartView {
   options = parseViewOptions(options);
   let compiled = compile(document);
-  let rendered = compiled;
   let model = createView(compiled);
   const view: View<Source, Context> = new View(
     host,
     options,
     '',
     (width, height, measure) => {
-      rendered = compiled;
       const state = view.viewport?.state(
         model.rowCount * model.rowHeight,
         hierarchyViewportHeight(height, options.axes ?? 'minimal')
       );
-      return layoutHierarchy(
-        model,
-        width,
-        height,
-        measure,
-        state,
-        options.axes ?? 'minimal',
-        !view.viewport
+      return captureScene(
+        layoutHierarchy(
+          model,
+          width,
+          height,
+          measure,
+          state,
+          options.axes ?? 'minimal',
+          !view.viewport
+        ),
+        compiled
       );
     },
-    {
-      snapshot: () => rendered,
-      contextFor: (target) => context(rendered, target)
-    },
+    (target, _series, snapshot) => context(snapshot as Compiled, target),
     {
       inputConsumed: () => view.viewport?.consumed ?? false,
       onNavigate(target) {
@@ -87,13 +87,14 @@ export function createHierarchy<
     view.assertActive();
     const next = compile(document);
     const nextView = createView(next);
-    view.viewport?.cancel();
-    compiled = next;
-    model = nextView;
-    view.status(model.items.length ? null : 'No data');
-    if (!view.disposed) view.changed();
+    interactionFor(view.runtime.session).batch(() => {
+      view.viewport?.cancel();
+      compiled = next;
+      model = nextView;
+      view.status(nextView.items.length ? null : 'No data');
+      if (!view.disposed) view.changed();
+    });
   };
   view.status(model.items.length ? null : 'No data');
-  view.changed();
   return view;
 }

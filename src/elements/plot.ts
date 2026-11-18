@@ -1,11 +1,13 @@
+import { captureScene, sceneSnapshot } from '../core/scene-snapshot.js';
 import type { CompiledChart } from '../families/metrics/document.js';
 import { layoutChart } from '../families/metrics/layout.js';
-import type { ChartRenderer } from './plot-contract.js';
+import { renderedSource, type ChartRenderer } from './plot-contract.js';
 import type { AxisMode, Inspect } from '../core/scene.js';
 import { ChartRuntime } from '../runtime/chart-runtime.js';
 
 /** Metric/category family adapter for the shared browser runtime. */
 export class Plot extends ChartRuntime implements ChartRenderer {
+  readonly [renderedSource] = { snapshot: null as CompiledChart | null };
   private compiled: CompiledChart | null = null;
   private hiddenKeys = '';
   private axes: AxisMode = 'full';
@@ -24,9 +26,11 @@ export class Plot extends ChartRuntime implements ChartRenderer {
         ? 'paint'
         : 'layout';
     this.paint(
-      (width, height, measure) => layoutChart(compiled, hidden, width, height, measure, axes),
+      (width, height, measure) =>
+        captureScene(layoutChart(compiled, hidden, width, height, measure, axes), compiled),
       reason
     );
+    this[renderedSource].snapshot = sceneSnapshot(this.model) as CompiledChart | null;
     this.compiled = compiled;
     this.hiddenKeys = keys;
     this.axes = axes;

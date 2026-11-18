@@ -94,6 +94,26 @@ export function inspectionDocument(entry: InspectionEntry, value: string, empty 
   };
 }
 
+export function hierarchyDocument(family: 'trace' | 'profile') {
+  const nodes = Array.from({ length: 50 }, (_, i) => ({
+    id: `node-${i}`,
+    name: `node-${i}`,
+    ...(i ? { parentId: `node-${i - 1}` } : {})
+  }));
+  return family === 'trace'
+    ? {
+        version: 1,
+        kind: family,
+        spans: nodes.map((node) => ({ ...node, startTimeNs: '0', endTimeNs: '10000' }))
+      }
+    : {
+        version: 1,
+        kind: family,
+        unit: 'samples',
+        frames: nodes.map((node) => ({ ...node, selfWeight: '1' }))
+      };
+}
+
 export function inspectionValue(context: InspectionContext | null) {
   return !context
     ? null

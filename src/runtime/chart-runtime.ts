@@ -1,3 +1,5 @@
+import { inspectKey, ownsInspectionDismissal } from './inspection-input.js';
+import { interactionFor } from '../core/interaction.js';
 import { ChartSession } from '../core/session.js';
 import { RangeSelectionSession, type RangeSelectionBinding } from '../core/range.js';
 import type { ChartInteraction, ChartScene, Inspect, Position } from '../core/scene.js';
@@ -72,7 +74,9 @@ export class ChartRuntime<Source = ResultRow>
       decoration,
       (target, position, pin, series, neighbors) => {
         if (this.#gesture?.consumed || this.options.inputConsumed?.()) return;
-        this.#inspect(target, position, pin, series, neighbors);
+        interactionFor(this.session).batch(() =>
+          this.#inspect(target, position, pin, series, neighbors)
+        );
       },
       { ...options }
     );
@@ -400,67 +404,61 @@ export class ChartRuntime<Source = ResultRow>
     }
   }
   protected keyboard(event: KeyboardEvent) {
-    if (event.metaKey || event.ctrlKey || event.altKey || this.model?.interactive === false) return;
-    const range = this.range;
-    const endpoint = (event.target as HTMLElement).dataset?.endpoint as 'start' | 'end' | undefined;
-    const adjusting = range.enabled && (event.shiftKey || endpoint || range.preview);
-    if (adjusting && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      event.stopPropagation();
-      this.#endpoint = endpoint ?? this.#endpoint;
-      range.adjust(
-        this.#endpoint,
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowRight'
-            ? 1
-            : -1
-      );
-      this.#binding?.onPreview?.(range.preview);
-      this.#paintRange();
-      return;
-    }
-    if (range.enabled && event.key === 'Escape' && (range.preview || range.value)) {
-      event.preventDefault();
-      event.stopPropagation();
-      if (range.preview) this.#cancel();
-      else this.#binding?.onDismiss?.(this.#binding.snapshot);
-      return;
-    }
-    if (range.preview && event.key === 'Enter' && this.#binding) {
-      event.preventDefault();
-      event.stopPropagation();
-      const value = range.commit(this.#binding.snapshot);
-      this.#binding.onPreview?.(null);
-      if (value) this.#binding.onCommit(value, this.#binding.snapshot);
-      this.#paintRange();
-      return;
-    }
-    if (this.options.keyboard === false) return;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const key =
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-            ? 'previous'
-            : 'next';
-      const target = this.session.next(key);
-      this.session.inspect(target?.key ?? null, false, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      const target = this.session.active ?? this.session.next('Home');
-      this.session.inspect(target?.key ?? null, true, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.session.clearInspection();
-    } else return;
-    if (this.signal.aborted) return;
-    this.focus(this.session.active);
-    this.announce();
-    this.options.onInspect?.(this.session.active, null, this.session.pinned);
+    interactionFor(this.session).batch(() => {
+      if (event.key === 'Escape' && ownsInspectionDismissal(this.canvas)) return;
+      if (
+        event.defaultPrevented ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        this.model?.interactive === false
+      )
+        return;
+      const range = this.range;
+      const endpoint = (event.target as HTMLElement).dataset?.endpoint as
+        | 'start'
+        | 'end'
+        | undefined;
+      const adjusting = range.enabled && (event.shiftKey || endpoint || range.preview);
+      if (adjusting && ['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        event.stopPropagation();
+        this.#endpoint = endpoint ?? this.#endpoint;
+        range.adjust(
+          this.#endpoint,
+          event.key === 'Home' || event.key === 'End'
+            ? event.key
+            : event.key === 'ArrowRight'
+              ? 1
+              : -1
+        );
+        this.#binding?.onPreview?.(range.preview);
+        this.#paintRange();
+        return;
+      }
+      if (range.enabled && event.key === 'Escape' && (range.preview || range.value)) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (range.preview) this.#cancel();
+        else this.#binding?.onDismiss?.(this.#binding.snapshot);
+        return;
+      }
+      if (range.preview && event.key === 'Enter' && this.#binding) {
+        event.preventDefault();
+        event.stopPropagation();
+        const value = range.commit(this.#binding.snapshot);
+        this.#binding.onPreview?.(null);
+        if (value) this.#binding.onCommit(value, this.#binding.snapshot);
+        this.#paintRange();
+        return;
+      }
+      if (this.options.keyboard === false) return;
+      inspectKey(event, this.session, true, this.signal, this.options, () => {
+        this.focus(this.session.active);
+        this.announce();
+        this.options.onInspect?.(this.session.active, null, this.session.pinned);
+      });
+    });
   }
   protected release() {
     this.#cancel();
