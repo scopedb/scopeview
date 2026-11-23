@@ -5,7 +5,7 @@ import { object } from '../data/validation.js';
 export interface ViewportInputOptions {
   rect(): PlotRect | null | undefined;
   enabled?(): boolean;
-  onChange(state: Readonly<ViewportState>): void;
+  onChange(state: Readonly<ViewportState>, reason?: 'viewport'): void;
 }
 
 /** Browser input policy over the DOM-free viewport. Dragging arbitrates with inspection. */
@@ -118,7 +118,7 @@ export class ViewportController {
       before.scrollOffset === after.scrollOffset
     )
       return false;
-    this.options.onChange(after);
+    this.options.onChange(after, 'viewport');
     return true;
   }
   private wheel(event: WheelEvent) {

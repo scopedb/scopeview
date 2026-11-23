@@ -31,6 +31,32 @@ export function documentMutated(records: MutationRecord[]): boolean {
   });
 }
 
+/** Observe a direct light-DOM JSON document script while programmatic property writes stay idle. */
+export function observeDocumentScript(
+  host: HTMLElement,
+  enabled: () => boolean,
+  apply: (value: unknown) => void,
+  onInvalidJSON: (message: string) => void
+): MutationObserver {
+  const read = () => {
+    const script = host.querySelector<HTMLScriptElement>(
+      ':scope > script[type="application/json"]'
+    );
+    if (!script) return;
+    try {
+      apply(JSON.parse(script.textContent ?? ''));
+    } catch {
+      onInvalidJSON('Invalid JSON. Check the chart document syntax.');
+    }
+  };
+  const observer = new MutationObserver((records) => {
+    if (enabled() && documentMutated(records)) read();
+  });
+  observer.observe(host, { childList: true, subtree: true, characterData: true });
+  if (enabled()) read();
+  return observer;
+}
+
 /** Built-in host theme. `system` follows the operating system preference. */
 export type ScopeTheme = ChartTheme;
 /** Unknown or absent values keep the light default. */

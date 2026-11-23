@@ -20,7 +20,7 @@ export type {
   LegendColumn,
   ToolbarOptions,
   ScopeChartAction
-} from './families/component-options.js';
+} from './elements/options.js';
 export { createChartSpec, fieldRef } from './families/metrics/spec.js';
 export type {
   ChartSpec,

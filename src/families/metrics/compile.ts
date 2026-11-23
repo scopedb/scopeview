@@ -2,7 +2,7 @@ import { fail } from '../../data/validation.js';
 import type { QuantityDisplay } from '../../data/semantics.js';
 import { resolveChartSpec, resolveField, type ChartConfig } from './spec.js';
 import { compileAxisChartModel, type TimeSeriesSource } from './model.js';
-import { buildChartDataset, type ChartDataset } from './dataset.js';
+import { buildChartDataset, chartColumn, type ChartDataset } from './dataset.js';
 import type { ChartDocument } from './parse.js';
 import type { buildSeriesInfo } from './series.js';
 import type { ValidationResult } from './validation.js';
@@ -44,7 +44,7 @@ export function compileMetric(
       config.mapping.kind !== 'axis' ||
       config.mapping.y.length !== 1 ||
       config.mapping.groupBy ||
-      dataset.columns.find((c) => c.id === xId)?.kind !== 'categorical')
+      chartColumn(dataset, xId!)?.kind !== 'categorical')
   )
     fail(
       'options.orientation',
@@ -64,7 +64,7 @@ export function compileMetric(
       fail('semantics.time.field', 'Time semantics must match the time axis.');
     timeSource = { ...time, field: field! };
     if (time.kind === 'buckets') {
-      const column = dataset.columns.find((column) => column.id === field)!;
+      const column = chartColumn(dataset, field!)!;
       for (const row of dataset.rows) {
         const value = row.values[column.columnIndex];
         const fraction = row.source[column.columnIndex]?.match(/\.(\d+)/)?.[1];
@@ -81,13 +81,13 @@ export function compileMetric(
       }
       if (
         time.valueKind === 'count' &&
-        config.mapping.y.some((id) =>
-          dataset.rows.some((row) => {
-            const c = dataset.columns.find((c) => c.id === id)!;
-            const raw = row.source[c.columnIndex];
-            return raw !== null && (!/^\d+$/.test(raw) || BigInt(raw) < 0n);
-          })
-        )
+        config.mapping.y.some((id) => {
+          const columnIndex = chartColumn(dataset, id)!.columnIndex;
+          return dataset.rows.some((row) => {
+            const raw = row.source[columnIndex];
+            return raw !== null && !/^\d+$/.test(raw);
+          });
+        })
       )
         fail('semantics.time.valueKind', 'Counts require non-negative integer source values.');
     }
@@ -103,6 +103,8 @@ export function compileMetric(
     document.options?.colorStrategy,
     ['top-list', 'treemap'].includes(config.displayType)
   );
-  return { document, dataset, config, series, axisModel, displays };
+  const interactive =
+    document.options?.interactive !== false && document.options?.presentation !== 'sparkline';
+  return { document, dataset, config, series, axisModel, displays, interactive };
 }
 export type CompiledChart = ReturnType<typeof compileMetric>;

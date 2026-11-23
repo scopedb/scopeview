@@ -23,29 +23,21 @@ export function createHierarchy<
   context: (compiled: Compiled, target: ChartInteraction<Source> | null) => Context | null,
   options: ViewOptions<Source, Context>
 ): ChartView {
-  options = parseViewOptions(options);
+  const parsed = parseViewOptions(options);
   let compiled = compile(document);
   let rendered = compiled;
   let model = createView(compiled);
   const view: View<Source, Context> = new View(
     host,
-    options,
+    parsed,
     '',
     (width, height, measure) => {
       rendered = compiled;
       const state = view.viewport?.state(
         model.rowCount * model.rowHeight,
-        hierarchyViewportHeight(height, options.axes ?? 'minimal')
+        hierarchyViewportHeight(height, parsed.axes)
       );
-      return layoutHierarchy(
-        model,
-        width,
-        height,
-        measure,
-        state,
-        options.axes ?? 'minimal',
-        !view.viewport
-      );
+      return layoutHierarchy(model, width, height, measure, state, parsed.axes, !view.viewport);
     },
     {
       snapshot: () => rendered,
@@ -62,7 +54,7 @@ export function createHierarchy<
           item.row * model.rowHeight,
           (item.row + 1) * model.rowHeight
         );
-        view.runtime.paint();
+        view.runtime.paint(undefined, 'viewport');
       }
     }
   );
@@ -70,10 +62,10 @@ export function createHierarchy<
     view.viewport = create(
       view.canvas,
       () => view.runtime.model?.rect,
-      () => model.document.options?.interactive !== false,
+      () => model.interactive,
       () => {
         view.hideReading();
-        view.runtime.refresh();
+        view.runtime.refresh('viewport');
       }
     );
     view.runtime.refresh();

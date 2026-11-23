@@ -4,7 +4,7 @@ import {
   parseTraceDocument,
   parseProfileDocument
 } from '../../../src/index.js';
-import { parseComponentOptions } from '../../../src/families/component-options.js';
+import { parseComponentOptions } from '../../../src/elements/options.js';
 import sample from '../../../examples/requests.json';
 
 describe.each(['metric', 'hierarchy'] as const)('%s host UI', (family) => {

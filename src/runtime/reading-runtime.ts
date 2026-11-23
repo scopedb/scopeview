@@ -1,5 +1,6 @@
 import { ChartSession } from '../core/session.js';
-import type { ChartInteraction, ChartScene } from '../core/scene.js';
+import type { ChartInteraction, ChartScene, Position } from '../core/scene.js';
+import { handleInspectionKey } from './keyboard.js';
 import { RuntimeLifecycle } from './lifecycle.js';
 import type { ReadingOptions } from './types.js';
 
@@ -17,9 +18,7 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
         if (options.inputConsumed?.()) return;
         if (!this.session.inspect(target?.key ?? null, pin && this.selectable, false, series))
           return;
-        this.focus(this.session.active);
-        this.announce();
-        options.onInspect?.(this.session.active, position, this.session.pinned, series);
+        this.#emit(position, series);
       },
       options
     );
@@ -29,6 +28,11 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
   get model() {
     return this.painter.model;
   }
+  #emit(position: Position | null, series?: string | null) {
+    this.focus(this.session.active);
+    this.announce();
+    this.options.onInspect?.(this.session.active, position, this.session.pinned, series);
+  }
   focus(target: ChartInteraction<Source> | null) {
     this.painter.focus(
       target,
@@ -37,45 +41,32 @@ export class ReadingRuntime<Source> extends RuntimeLifecycle<Source> {
       this.session.selected?.key ?? null
     );
   }
-  protected draw(scene: ChartScene<Source>) {
-    this.painter.render(scene, {
-      inspectionKey: this.session.active?.key ?? null,
-      inspectionPinned: this.session.pinned,
-      inspectionSeries: this.session.series,
-      selectedKey: this.session.selected?.key ?? null,
-      range: null
-    });
+  protected draw(scene: ChartScene<Source>, keepColors: boolean, font?: string) {
+    this.painter.render(
+      scene,
+      {
+        inspectionKey: this.session.active?.key ?? null,
+        inspectionPinned: this.session.pinned,
+        inspectionSeries: this.session.series,
+        selectedKey: this.session.selected?.key ?? null,
+        range: null
+      },
+      { font, keepColors }
+    );
     if (scene.interactive === false) this.canvas.removeAttribute('tabindex');
     else this.canvas.tabIndex = 0;
     this.announce();
   }
   protected keyboard(event: KeyboardEvent) {
-    if (event.metaKey || event.ctrlKey || event.altKey || this.model?.interactive === false) return;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const direction =
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-            ? 'previous'
-            : 'next';
-      const target = this.session.next(direction);
-      this.session.inspect(target?.key ?? null, false, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      const target = this.session.active ?? this.session.next('Home');
-      this.session.inspect(target?.key ?? null, this.selectable, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.session.clearInspection();
-    } else return;
-    // Navigation may paint synchronously and let host callbacks dismiss or dispose this reading.
-    if (this.signal.aborted) return;
-    this.focus(this.session.active);
-    this.announce();
-    this.options.onInspect?.(this.session.active, null, this.session.pinned);
+    handleInspectionKey(
+      event,
+      this.session,
+      this.model?.interactive,
+      this.selectable,
+      () => this.#emit(null),
+      this.options.onNavigate,
+      this.signal
+    );
   }
   protected release() {
     this.session.reset();

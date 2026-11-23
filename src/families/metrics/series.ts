@@ -56,7 +56,7 @@ function seriesPaint(color: string): Pick<SeriesInfo, 'color' | 'lineColor' | 'l
   return {
     color,
     lineColor: index < 0 ? color : color.replace(')', '-line)'),
-    lineType: [4, 6, 7, 8, 9].includes(index) ? 'dashed' : 'solid'
+    lineType: index === 4 || index >= 6 ? 'dashed' : 'solid'
   };
 }
 
@@ -77,21 +77,24 @@ function seriesInfoFromSums(
         )
       : [];
   const ranks = new Map(ranking.map(([name], index) => [name, index]));
-  return [...sums].map(([name, sum]) => ({
-    name,
-    sum,
-    ...(colorOverrides?.has(name)
-      ? seriesPaint(colorOverrides.get(name)!)
-      : mode === 'semantic'
-        ? semanticPaint(name, semanticFamily(field))
-        : seriesPaint(
-            mode === 'theme'
-              ? CHART_PALETTE[0]
-              : mode === 'ranked'
-                ? CHART_PALETTE[ranks.get(name)! % CHART_PALETTE.length]
-                : seriesColor(identity(name))
-          ))
-  }));
+  return [...sums].map(([name, sum]) => {
+    const override = colorOverrides?.get(name);
+    return {
+      name,
+      sum,
+      ...(override
+        ? seriesPaint(override)
+        : mode === 'semantic'
+          ? semanticPaint(name, semanticFamily(field))
+          : seriesPaint(
+              mode === 'theme'
+                ? CHART_PALETTE[0]
+                : mode === 'ranked'
+                  ? CHART_PALETTE[ranks.get(name)! % CHART_PALETTE.length]
+                  : seriesColor(identity(name))
+            ))
+    };
+  });
 }
 
 /** The explicitly mapped category, including categorical axes with one measure. */
@@ -124,13 +127,13 @@ function seriesContext(
         : mapping.kind === 'distribution'
           ? mapping.category
           : undefined;
+  const columnByLabel = dimension
+    ? null
+    : new Map(dataset.columns.map((column) => [column.label, column.id]));
   const identity = (name: string) =>
     dimension
       ? JSON.stringify(['dimension', colorField(dataset, dimension), name])
-      : JSON.stringify([
-          'metric',
-          colorField(dataset, dataset.columns.find((column) => column.label === name)!.id)
-        ]);
+      : JSON.stringify(['metric', colorField(dataset, columnByLabel!.get(name)!)]);
   const fromSums = (sums: Map<string, number>) =>
     seriesInfoFromSums(
       sums,
@@ -158,14 +161,17 @@ export function buildAxisSeriesInfo(
   const sums = new Map<string, number>();
   for (const row of prepared.rows) sums.set(row.series, (sums.get(row.series) ?? 0) + row.y);
   // A returned NULL is still a series and a source reading, even with no painted values.
-  if (prepared.kind === 'temporal')
-    for (const row of dataset.rows)
-      for (const id of mapping.y) {
-        const name = dimension
-          ? groupSeriesName(chartValue(row, chartColumn(dataset, dimension)!))
-          : chartColumn(dataset, id)!.label;
+  if (prepared.kind === 'temporal') {
+    const groupColumn = dimension ? chartColumn(dataset, dimension)! : null;
+    const yLabels = mapping.y.map((id) => chartColumn(dataset, id)!.label);
+    for (const row of dataset.rows) {
+      const groupName = groupColumn ? groupSeriesName(chartValue(row, groupColumn)) : null;
+      for (const label of yLabels) {
+        const name = groupName ?? label;
         if (!sums.has(name)) sums.set(name, 0);
       }
+    }
+  }
   const series = fromSums(sums);
   const category = !dimension ? chartColorField(dataset, mapping) : undefined;
   if (category && (strategy !== 'auto' || semanticFamily(category.field.name))) {

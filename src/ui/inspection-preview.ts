@@ -12,29 +12,34 @@ export function renderPreview<Source>(
   if (previews.get(tooltip) !== value) {
     previews.set(tooltip, value);
     const reading = value.tooltip;
+    const nodes: HTMLElement[] = [];
     const heading = node('div', 'tooltip-heading');
     appendSwatch(heading, reading.color);
-    const title = node('strong', '', reading.title ?? '');
-    title.title = [reading.title, reading.context].filter(Boolean).join(' · ');
-    heading.append(title);
-    const body = node('div', 'tooltip-body');
-    readingRows(body, reading.previewRows ?? reading.rows);
-    tooltip.replaceChildren(heading, body);
-    tooltip.classList.toggle('sample', reading.presentation === 'sample');
-    tooltip.classList.toggle('compact', reading.previewRows !== undefined);
+    if (reading.title) {
+      const title = node('strong', '', reading.title);
+      title.title = [reading.title, reading.context].filter(Boolean).join(' · ');
+      heading.append(title);
+    }
+    if (heading.childNodes.length) nodes.push(heading);
     if (reading.context) {
       const context = node('p', 'tooltip-context', reading.context);
       context.title = reading.context;
-      heading.after(context);
+      nodes.push(context);
     }
+    const body = node('div', 'tooltip-body');
+    readingRows(body, reading.previewRows ?? reading.rows);
+    nodes.push(body);
     if (reading.summary) {
       const summary = node('div', 'tooltip-summary');
       summary.append(
         node('span', '', reading.summary.label),
         node('strong', '', reading.summary.value)
       );
-      tooltip.append(summary);
+      nodes.push(summary);
     }
+    tooltip.replaceChildren(...nodes);
+    tooltip.classList.toggle('sample', reading.presentation === 'sample');
+    tooltip.classList.toggle('compact', reading.previewRows !== undefined);
     tooltip.setAttribute('role', 'tooltip');
   }
   for (const row of tooltip.querySelectorAll<HTMLElement>('.tooltip-row'))

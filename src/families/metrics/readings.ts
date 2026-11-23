@@ -1,8 +1,9 @@
 import type { CompiledChart } from './document.js';
-import type { LegendColumn } from '../component-options.js';
 import { chartColumn } from './dataset.js';
 import { groupSeriesName } from './prepared.js';
 import { formatQuantity, type QuantityDisplay } from '../../data/semantics.js';
+
+export type LegendColumn = 'last' | 'avg' | 'sum' | 'min' | 'max';
 
 /** Source-domain summaries: NULLs are excluded from arithmetic, never converted to zero. */
 export function legendReadings(compiled: CompiledChart, columns: readonly LegendColumn[]) {

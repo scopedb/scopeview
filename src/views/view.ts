@@ -4,7 +4,11 @@ import { InspectionNotifications } from '../core/inspection-notifications.js';
 import type { SceneLayout } from '../runtime/types.js';
 import { ReadingRuntime } from '../runtime/reading-runtime.js';
 import { node } from '../ui/dom.js';
-import { hideInspection, positionInspection } from '../ui/inspection-floating.js';
+import {
+  bindInspectionDismiss,
+  hideInspection,
+  positionInspection
+} from '../ui/inspection-floating.js';
 import { renderPreview } from '../ui/inspection-preview.js';
 import styles from '../theme/headless.css?inline';
 import baseTokens from '../theme/headless-tokens.css?inline';
@@ -92,19 +96,16 @@ export class View<Source, Context extends InspectionContext> extends ViewHost im
       },
       cleanup: (callback) => this.cleanup(callback)
     });
-    const dismiss = (event: Event) => {
-      if (event.composedPath().includes(this.element)) return;
-      this.clearInspection();
-    };
-    document.addEventListener('pointerdown', dismiss, { signal: this.signal });
-    document.addEventListener('focusin', dismiss, { signal: this.signal });
-    window.addEventListener(
-      'scroll',
-      () => {
-        if (this.runtime.session.keyboardInspection) this.#reading();
-        else this.hideReading();
+    bindInspectionDismiss(
+      this.element,
+      this.#tooltip,
+      () => this.runtime.session.keyboardInspection,
+      (outside) => {
+        if (!outside) this.hideReading();
+        else this.clearInspection();
       },
-      { capture: true, signal: this.signal }
+      () => this.#reading(),
+      this.signal
     );
   }
   #reading() {

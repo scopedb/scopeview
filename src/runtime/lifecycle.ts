@@ -8,15 +8,33 @@ import type {
 } from '../core/scene.js';
 import { inspectionText } from '../core/labels.js';
 import { CanvasRenderer } from '../renderers/canvas/renderer.js';
-import { CanvasSurface } from '../renderers/canvas/surface.js';
 import { canvasFont } from '../renderers/canvas/typography.js';
-import type { SceneLayout } from './types.js';
+import type { RefreshReason, SceneLayout } from './types.js';
 
 interface LifecycleOptions<Source> {
   layout?: SceneLayout<Source>;
   onRender?(scene: ChartScene<Source>): void;
   onError?(error: unknown): void;
   invalidate?(reason: PaintInvalidation): void;
+}
+
+const TEXT_WIDTH_CACHE_LIMIT = 2048;
+let measureContext: CanvasRenderingContext2D | null = null;
+let measureDocument: Document | undefined;
+function scratchMeasureContext(): CanvasRenderingContext2D {
+  if (
+    !measureContext ||
+    measureDocument !== document ||
+    (measureContext.canvas.ownerDocument != null &&
+      measureContext.canvas.ownerDocument !== document)
+  ) {
+    measureDocument = document;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    measureContext = canvas.getContext('2d');
+    if (!measureContext) throw new Error('Canvas 2D is unavailable.');
+  }
+  return measureContext;
 }
 
 /** Browser resources and layout invalidation, independent of reading and interaction state. */
@@ -30,10 +48,14 @@ export abstract class RuntimeLifecycle<Source> {
   #events = new AbortController();
   protected readonly signal = this.#events.signal;
   #resize: ResizeObserver;
-  #measure = new CanvasSurface('measure');
   #frame = 0;
+  #viewport = false;
+  #paintDirty = true;
   // Cleared measurements leave layout pending, including while the host is hidden.
-  #measurement: { width: number; height: number; font: string } | null = null;
+  #measurement: { width: number; height: number } | null = null;
+  #font = '';
+  #widths = new Map<string, number>();
+  #aria: string | null = null;
 
   constructor(
     protected canvas: HTMLElement,
@@ -56,13 +78,14 @@ export abstract class RuntimeLifecycle<Source> {
     document.fonts?.addEventListener(
       'loadingdone',
       () => {
+        this.#widths.clear();
         this.painter.invalidate();
         this.#invalidate();
       },
       { signal }
     );
   }
-  protected abstract draw(scene: ChartScene<Source>): void;
+  protected abstract draw(scene: ChartScene<Source>, keepColors: boolean, font?: string): void;
   protected abstract release(): void;
   protected abstract keyboard(event: KeyboardEvent): void;
 
@@ -78,20 +101,35 @@ export abstract class RuntimeLifecycle<Source> {
   }
   #invalidate(reason: PaintInvalidation = 'layout') {
     if (reason === 'layout') this.#measurement = null;
+    this.#paintDirty = true;
     if (this.options.invalidate) this.options.invalidate(reason);
     else this.refresh(reason);
   }
-  /** Layout invalidation wins when several requests share a frame. */
-  refresh(reason: PaintInvalidation = 'layout') {
+  /** Layout > viewport > paint when several refresh requests share a frame. */
+  refresh(reason: RefreshReason = 'layout') {
     if (this.signal.aborted) return;
-    if (reason === 'layout') this.#measurement = null;
+    if (reason === 'layout') {
+      this.#measurement = null;
+      this.#paintDirty = true;
+    } else if (reason === 'viewport') {
+      this.#viewport = true;
+    } else {
+      this.#paintDirty = true;
+    }
     if (this.#frame) return;
     this.#frame = requestAnimationFrame(() => {
       this.#frame = 0;
+      const viewport = this.#viewport;
+      this.#viewport = false;
       try {
-        this.paint(this.options.layout, 'paint');
+        this.paint(
+          this.options.layout,
+          this.#measurement ? (viewport ? 'viewport' : 'paint') : 'layout'
+        );
       } catch (error) {
         this.#measurement = null;
+        this.#paintDirty = true;
+        this.#aria = null;
         this.painter.model = null;
         this.session.setModel(null);
         this.canvas.replaceChildren();
@@ -101,48 +139,83 @@ export abstract class RuntimeLifecycle<Source> {
     });
   }
   /** Synchronous render for a host's coordinated state transaction. */
-  paint(layout = this.options.layout, reason: PaintInvalidation = 'layout') {
+  paint(layout = this.options.layout, reason: RefreshReason = 'layout') {
     if (this.signal.aborted || !layout) return;
     this.options.layout = layout;
     if (reason === 'layout') this.#measurement = null;
+    if (reason !== 'viewport') this.#paintDirty = true;
     const { width, height } = this.canvas.getBoundingClientRect();
-    if (width <= 0 || height <= 0) return;
-    const font = canvasFont(this.canvas);
+    if (width <= 0 || height <= 0) {
+      if (reason === 'viewport') this.#measurement = null;
+      return;
+    }
+    const font = canvasFont(this.canvas),
+      fontChanged = font !== this.#font;
     let scene = this.painter.model;
     if (
       !scene ||
+      reason === 'viewport' ||
       width !== this.#measurement?.width ||
       height !== this.#measurement?.height ||
-      font !== this.#measurement?.font
+      fontChanged
     ) {
-      const context = this.#measure.context;
-      context.font = font;
-      const measure: MeasureText = (text) => context.measureText(text).width;
+      if (fontChanged) {
+        this.#widths.clear();
+        this.#font = font;
+      }
+      const widths = this.#widths,
+        ctx = scratchMeasureContext();
+      const measure: MeasureText = (text) => {
+        let measured = widths.get(text);
+        if (measured !== undefined) {
+          widths.delete(text);
+          widths.set(text, measured);
+          return measured;
+        }
+        if (ctx.font !== font) ctx.font = font;
+        measured = ctx.measureText(text).width;
+        if (widths.size >= TEXT_WIDTH_CACHE_LIMIT) widths.delete(widths.keys().next().value!);
+        widths.set(text, measured);
+        return measured;
+      };
       measure.fontSize = parseFloat(font);
       scene = layout(width, height, measure, this.session.hidden);
-      this.#measurement = { width, height, font };
+      this.#measurement = { width, height };
     }
-    this.session.setModel(scene.navigation ?? scene);
-    this.draw(scene);
+    const keepColors = reason === 'viewport' && !this.#paintDirty;
+    this.#paintDirty = false;
+    try {
+      this.session.setModel(scene.navigation ?? scene);
+      this.draw(scene, keepColors, font);
+    } catch (error) {
+      this.#paintDirty = true;
+      throw error;
+    }
     this.options.onRender?.(scene);
   }
   anchor(target: ChartInteraction<Source>) {
     return this.painter.anchor(target);
   }
+  protected resetAria() {
+    this.#aria = null;
+  }
   protected announce() {
     const active = this.session.active;
-    this.canvas.setAttribute(
-      'aria-label',
-      active ? inspectionText(active) : (this.painter.model?.ariaLabel ?? 'ScopeDB chart')
-    );
+    const label = active
+      ? inspectionText(active)
+      : (this.painter.model?.ariaLabel ?? 'ScopeDB chart');
+    if (label !== this.#aria) {
+      this.#aria = label;
+      this.canvas.setAttribute('aria-label', label);
+    }
   }
   dispose() {
     if (this.signal.aborted) return;
     this.#events.abort();
     cancelAnimationFrame(this.#frame);
     this.#resize.disconnect();
+    this.#widths.clear();
     this.release();
     this.painter.dispose();
-    this.#measure.dispose();
   }
 }

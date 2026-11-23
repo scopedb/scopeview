@@ -14,38 +14,56 @@ function scenePosition(
   };
 }
 
+let hitContext: CanvasRenderingContext2D | null | undefined;
+let hitDocument: Document | undefined;
+function scratchHitContext() {
+  if (
+    hitContext === undefined ||
+    hitDocument !== document ||
+    (hitContext &&
+      hitContext.canvas.ownerDocument != null &&
+      hitContext.canvas.ownerDocument !== document)
+  ) {
+    hitDocument = document;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = 1;
+    hitContext = canvas.getContext('2d');
+  }
+  return hitContext;
+}
+
 /** All browser painters use the same CSS-pixel targets, including exact path hits. */
 export class SceneInput<Source> {
+  #root: HTMLElement | SVGSVGElement;
+  #inspect: Inspect<Source>;
   #scene: ChartScene<Source> | null = null;
   #index: SceneHitIndex<Source> | null = null;
   #paths = new Map<string, Path2D>();
-  #context = document.createElement('canvas').getContext('2d');
   #events = new AbortController();
-  constructor(
-    private root: HTMLElement | SVGSVGElement,
-    private inspect: Inspect<Source>
-  ) {
+  constructor(root: HTMLElement | SVGSVGElement, inspect: Inspect<Source>) {
+    this.#root = root;
+    this.#inspect = inspect;
     const signal = this.#events.signal;
-    root.addEventListener('pointermove', (event) => this.pointer(event as PointerEvent, false), {
+    root.addEventListener('pointermove', (event) => this.#pointer(event as PointerEvent, false), {
       signal
     });
-    root.addEventListener('click', (event) => this.pointer(event as MouseEvent, true), { signal });
+    root.addEventListener('click', (event) => this.#pointer(event as MouseEvent, true), { signal });
     root.addEventListener(
       'pointerleave',
       () => {
-        this.cursor(false);
-        this.inspect(null, null, false);
+        this.#cursor(false);
+        this.#inspect(null, null, false);
       },
       { signal }
     );
   }
   update(scene: ChartScene<Source>) {
     this.#scene = scene;
-    this.#index = new SceneHitIndex(scene);
+    this.#index = null;
     this.#paths.clear();
-    this.cursor(false);
+    this.#cursor(false);
   }
-  private cursor(hit: boolean) {
+  #cursor(hit: boolean) {
     const cursor =
       !this.#scene || this.#scene.interactive === false
         ? ''
@@ -54,7 +72,7 @@ export class SceneInput<Source> {
             ? 'pointer'
             : 'default'
           : 'crosshair';
-    if (this.root.style.cursor !== cursor) this.root.style.cursor = cursor;
+    if (this.#root.style.cursor !== cursor) this.#root.style.cursor = cursor;
   }
   path(mark: Extract<SceneMark, { kind: 'path' }>) {
     let path = this.#paths.get(mark.d);
@@ -64,28 +82,31 @@ export class SceneInput<Source> {
     }
     return path;
   }
-  private pointer(event: MouseEvent, pin: boolean) {
+  #pointer(event: MouseEvent, pin: boolean) {
     if (!this.#scene || this.#scene.interactive === false) return;
-    const position = scenePosition(this.root, this.#scene, event);
-    const value = this.#index!.hit(position, (mark, p) => {
-      const ctx = this.#context;
+    if (!this.#index) this.#index = new SceneHitIndex(this.#scene);
+    const index = this.#index;
+    const position = scenePosition(this.#root, this.#scene, event);
+    const value = index.hit(position, (mark, p) => {
+      const ctx = scratchHitContext();
       if (!ctx) return false;
       const path = this.path(mark);
-      ctx.lineWidth = mark.strokeWidth ?? 2;
-      ctx.lineJoin = 'round';
-      ctx.setLineDash(mark.dashed ? [5, 4] : []);
-      return (
-        (mark.fill !== 'none' && ctx.isPointInPath(path, p.x, p.y)) ||
-        (!!mark.stroke && mark.stroke !== 'none' && ctx.isPointInStroke(path, p.x, p.y))
-      );
+      if (mark.fill !== 'none' && ctx.isPointInPath(path, p.x, p.y)) return true;
+      if (mark.stroke && mark.stroke !== 'none') {
+        ctx.lineWidth = mark.strokeWidth ?? 2;
+        ctx.lineJoin = 'round';
+        ctx.setLineDash(mark.dashed ? [5, 4] : []);
+        return ctx.isPointInStroke(path, p.x, p.y);
+      }
+      return false;
     });
-    this.cursor(value !== null);
-    this.inspect(
+    this.#cursor(value !== null);
+    this.#inspect(
       value,
       position,
       pin,
       inspectionSeriesAt(value, position),
-      this.#index!.pointHits(position)
+      value && this.#scene.emphasis === 'point' ? index.pointHits(position) : []
     );
   }
   dispose() {
@@ -93,7 +114,5 @@ export class SceneInput<Source> {
     this.#scene = null;
     this.#index = null;
     this.#paths.clear();
-    if (this.#context) this.#context.canvas.width = this.#context.canvas.height = 0;
-    this.#context = null;
   }
 }

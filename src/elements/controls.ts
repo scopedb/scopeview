@@ -1,5 +1,5 @@
-import type { ComponentOptions, ScopeChartAction } from '../families/component-options.js';
-export type { ScopeChartAction } from '../families/component-options.js';
+import type { ComponentOptions, ScopeChartAction } from './options.js';
+export type { ScopeChartAction } from './options.js';
 
 export interface ScopeChartControl {
   action: ScopeChartAction;

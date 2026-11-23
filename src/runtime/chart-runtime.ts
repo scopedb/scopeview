@@ -1,11 +1,17 @@
 import { ChartSession } from '../core/session.js';
 import { RangeSelectionSession, type RangeSelectionBinding } from '../core/range.js';
 import type { ChartInteraction, ChartScene, Inspect, Position } from '../core/scene.js';
-import type { ScenePainter, PaintState, PaintInvalidation } from '../core/painter.js';
+import type {
+  ScenePainter,
+  PaintState,
+  PaintInvalidation,
+  PaintRenderOptions
+} from '../core/painter.js';
 import { object, boolean, choice, fail } from '../data/validation.js';
 import type { TimeWindow } from '../data/time.js';
 import type { ResultRow } from '../data/result.js';
 import { parseLinkedHighlight, type LinkedHighlight } from '../core/link-group.js';
+import { handleInspectionKey } from './keyboard.js';
 import { RuntimeLifecycle } from './lifecycle.js';
 import type { ReadingOptions, SceneLayout } from './types.js';
 
@@ -13,6 +19,8 @@ export interface RuntimeOptions<Source> extends Omit<ReadingOptions<Source>, 'la
   layout?: SceneLayout<Source>;
   /** An enclosing UI can own inspection controls and its repaint transaction. */
   inspection?: Inspect<Source>;
+  /** Share an existing session instead of allocating an internal copy. */
+  session?: ChartSession<Source>;
   invalidate?(reason: PaintInvalidation): void;
   keyboard?: boolean;
   inspectionMode?: 'freeze' | 'compare';
@@ -29,6 +37,10 @@ const callbackKeys = [
   'inputConsumed'
 ] as const;
 
+const RANGE_HANDLE_WIDTH = 12;
+const RANGE_HANDLE_HEIGHT = 24;
+const RANGE_HANDLE_RADIUS = 3;
+
 /** Shared browser lifecycle and input arbitration for the element and custom hosts. */
 export class ChartRuntime<Source = ResultRow>
   extends RuntimeLifecycle<Source>
@@ -37,11 +49,8 @@ export class ChartRuntime<Source = ResultRow>
   readonly session: ChartSession<Source>;
   readonly range = new RangeSelectionSession();
   protected declare readonly options: RuntimeOptions<Source>;
-  #focused: ChartInteraction<Source> | null = null;
-  #focusedPinned = false;
-  #focusedSeries: string | null = null;
-  #selectedKey: string | null = null;
-  #hoverKey: string | null = null;
+  readonly #ownsSession: boolean;
+  #externalState: PaintState | null = null;
   #linkedHighlight: LinkedHighlight | null = null;
   #binding: RangeSelectionBinding | null = null;
   #handles = document.createElement('div');
@@ -60,10 +69,12 @@ export class ChartRuntime<Source = ResultRow>
   #originalTouchAction: string;
 
   constructor(canvas: HTMLElement, decoration: HTMLElement, options: RuntimeOptions<Source> = {}) {
-    object(options, 'options', ['inspectionMode', 'keyboard', ...callbackKeys]);
+    object(options, 'options', ['inspectionMode', 'keyboard', 'session', ...callbackKeys]);
     if (options.keyboard !== undefined) boolean(options.keyboard, 'options.keyboard');
     if (options.inspectionMode !== undefined)
       choice(options.inspectionMode, ['freeze', 'compare'], 'options.inspectionMode');
+    if (options.session !== undefined && !(options.session instanceof ChartSession))
+      fail('options.session', 'Expected a ChartSession.');
     for (const key of callbackKeys)
       if (options[key] !== undefined && typeof options[key] !== 'function')
         fail(`options.${key}`, 'Expected a callback.');
@@ -76,7 +87,8 @@ export class ChartRuntime<Source = ResultRow>
       },
       { ...options }
     );
-    this.session = new ChartSession<Source>(options.inspectionMode);
+    this.#ownsSession = !options.session;
+    this.session = options.session ?? new ChartSession<Source>(options.inspectionMode);
     this.#originalTouchAction = canvas.style.touchAction;
     this.#originalAttributes = ['tabindex', 'role', 'aria-label', 'aria-hidden'].map(
       (name) => [name, canvas.getAttribute(name)] as const
@@ -123,6 +135,9 @@ export class ChartRuntime<Source = ResultRow>
     }
     if (options.layout) this.refresh();
   }
+  get #externalFocus() {
+    return Boolean(this.options.inspection && !this.options.session);
+  }
   #inspect(
     target: ChartInteraction<Source> | null,
     position: Position | null,
@@ -155,20 +170,21 @@ export class ChartRuntime<Source = ResultRow>
   get diagnostics() {
     return this.painter.diagnostics;
   }
-  render(scene: ChartScene<Source>, state?: PaintState) {
-    const external = this.options.inspection;
+  render(scene: ChartScene<Source>, state?: PaintState, options?: PaintRenderOptions) {
+    const external = this.#externalFocus ? this.#externalState : null;
     this.painter.render(
       scene,
       state ?? {
-        inspectionKey: (external ? this.#focused : this.session.active)?.key ?? null,
-        inspectionPinned: external ? this.#focusedPinned : this.session.pinned,
-        hoverKey: external ? this.#hoverKey : this.#pointerHoverKey(),
-        inspectionSeries: external ? this.#focusedSeries : this.session.series,
-        selectedKey: external ? this.#selectedKey : this.session.selected?.key,
+        inspectionKey: external ? external.inspectionKey : (this.session.active?.key ?? null),
+        inspectionPinned: external ? external.inspectionPinned : this.session.pinned,
+        hoverKey: external ? external.hoverKey : this.#pointerHoverKey(),
+        inspectionSeries: external ? external.inspectionSeries : this.session.series,
+        selectedKey: external ? external.selectedKey : this.session.selected?.key,
         linkedInspectionKey: this.#linkedHighlight?.inspectionKey,
         linkedCursor: this.#linkedHighlight?.cursor,
         range: this.range.displayed
-      }
+      },
+      options
     );
   }
   #pointerHoverKey() {
@@ -184,16 +200,34 @@ export class ChartRuntime<Source = ResultRow>
       (pinned ? (target?.key ?? null) : null),
     hoverKey: string | null = this.#pointerHoverKey()
   ) {
-    this.#focused = target;
-    this.#focusedPinned = target !== null && pinned;
-    this.#focusedSeries = series;
-    this.#selectedKey = selectedKey;
-    this.#hoverKey = hoverKey;
-    this.painter.focus(target, this.#focusedPinned, series, selectedKey, hoverKey);
+    const key = target?.key ?? null;
+    const isPinned = target !== null && pinned;
+    if (this.#externalFocus) {
+      this.#externalState = {
+        inspectionKey: key,
+        inspectionPinned: isPinned,
+        inspectionSeries: series,
+        selectedKey,
+        hoverKey,
+        range: this.range.displayed
+      };
+    }
+    this.painter.focus(target, isPinned, series, selectedKey, hoverKey);
   }
   set linkedHighlight(value: LinkedHighlight | null) {
-    this.#linkedHighlight = parseLinkedHighlight(value);
-    if (this.model) this.render(this.model);
+    const next = parseLinkedHighlight(value);
+    if (
+      (next === null && this.#linkedHighlight === null) ||
+      (next !== null &&
+        this.#linkedHighlight !== null &&
+        next.inspectionKey === this.#linkedHighlight.inspectionKey &&
+        next.cursor === this.#linkedHighlight.cursor)
+    )
+      return;
+    this.#linkedHighlight = next;
+    if (!this.model) return;
+    if (this.painter.link) this.painter.link(next?.inspectionKey ?? null, next?.cursor ?? null);
+    else this.render(this.model);
   }
   get linkedHighlight() {
     return this.#linkedHighlight && { ...this.#linkedHighlight };
@@ -205,10 +239,9 @@ export class ChartRuntime<Source = ResultRow>
     this.options.layout = layout;
     this.refresh();
   }
-  protected draw(scene: ChartScene<Source>) {
-    this.render(scene);
+  protected draw(scene: ChartScene<Source>, keepColors: boolean, font?: string) {
+    this.render(scene, undefined, { font, keepColors });
     if (this.#handles.parentNode !== this.canvas) this.canvas.append(this.#handles);
-    if (!this.options.inspection) this.focus(this.session.active);
     if (this.options.keyboard !== false) {
       if (scene.interactive === false) this.canvas.removeAttribute('tabindex');
       else this.canvas.tabIndex = 0;
@@ -249,6 +282,7 @@ export class ChartRuntime<Source = ResultRow>
     if (!this.range.enabled && this.#gesture) this.#cancel();
     this.canvas.style.touchAction = this.range.enabled ? 'pan-y' : this.#originalTouchAction;
     if (this.options.keyboard === false) {
+      this.resetAria();
       if (this.range.enabled) {
         this.canvas.tabIndex = 0;
         this.canvas.removeAttribute('aria-hidden');
@@ -385,12 +419,12 @@ export class ChartRuntime<Source = ResultRow>
       Object.assign(button.style, {
         position: 'absolute',
         pointerEvents: 'auto',
-        left: `${r.x + ((range[endpoint] - domain.start) / (domain.end - domain.start)) * r.width - 6}px`,
-        top: `${r.y + r.height / 2 - 12}px`,
-        width: '12px',
-        height: '24px',
+        left: `${r.x + ((range[endpoint] - domain.start) / (domain.end - domain.start)) * r.width - RANGE_HANDLE_WIDTH / 2}px`,
+        top: `${r.y + r.height / 2 - RANGE_HANDLE_HEIGHT / 2}px`,
+        width: `${RANGE_HANDLE_WIDTH}px`,
+        height: `${RANGE_HANDLE_HEIGHT}px`,
         border: '1px solid var(--color-text-brand)',
-        borderRadius: '3px',
+        borderRadius: `${RANGE_HANDLE_RADIUS}px`,
         background: 'var(--color-surface)',
         color: 'var(--color-text-brand)',
         padding: '0',
@@ -437,42 +471,32 @@ export class ChartRuntime<Source = ResultRow>
       return;
     }
     if (this.options.keyboard === false) return;
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      const key =
-        event.key === 'Home' || event.key === 'End'
-          ? event.key
-          : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
-            ? 'previous'
-            : 'next';
-      const target = this.session.next(key);
-      this.session.inspect(target?.key ?? null, false, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      const target = this.session.active ?? this.session.next('Home');
-      this.session.inspect(target?.key ?? null, true, true);
-      if (target) this.options.onNavigate?.(target);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      this.session.clearInspection();
-    } else return;
-    if (this.signal.aborted) return;
-    this.focus(this.session.active);
-    this.announce();
-    this.options.onInspect?.(this.session.active, null, this.session.pinned);
+    handleInspectionKey(
+      event,
+      this.session,
+      this.model?.interactive,
+      true,
+      () => {
+        this.focus(this.session.active);
+        this.announce();
+        this.options.onInspect?.(this.session.active, null, this.session.pinned);
+      },
+      this.options.onNavigate,
+      this.signal
+    );
   }
   protected release() {
     this.#cancel();
     this.#binding = null;
     this.range.reset();
-    this.session.reset();
+    if (this.#ownsSession) this.session.reset();
+    else this.session.setModel(null);
     this.#handles.remove();
     this.canvas.style.touchAction = this.#originalTouchAction;
     for (const [name, value] of this.#originalAttributes) {
       if (value === null) this.canvas.removeAttribute(name);
       else this.canvas.setAttribute(name, value);
     }
-    this.#focused = null;
+    this.#externalState = null;
   }
 }

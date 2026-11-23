@@ -67,9 +67,7 @@ export function numericAxis(values: readonly number[], count: number, zero = fal
     if (value >= min && value !== ticks.at(-1)) ticks.push(value === 0 ? 0 : value);
   }
   if (ticks.length < 2) ticks.splice(0, ticks.length, min, max);
-  const labels = ticks.map((value) =>
-    Math.abs(value) >= 1e12 ? value.toExponential(2) : compactFormat(value)
-  );
+  const labels = ticks.map(compactFormat);
   if (new Set(labels).size !== labels.length) {
     for (let i = 0; i < ticks.length; i++) labels[i] = formatInspectionNumber(ticks[i]);
   }

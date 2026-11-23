@@ -1,7 +1,4 @@
-import type {
-  MetricComponentOptions,
-  EntityComponentOptions
-} from '../../../src/families/component-options.js';
+import type { MetricComponentOptions, EntityComponentOptions } from '../../../src/index.js';
 import { buildChartDataset } from '../../../src/families/metrics/dataset.js';
 import { createChartSpec, fieldRef } from '../../../src/families/metrics/spec.js';
 import type { ChartDocument } from '../../../src/families/metrics/document.js';

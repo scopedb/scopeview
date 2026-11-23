@@ -16,6 +16,50 @@ describe('Canvas label contrast', () => {
       'purple'
     );
   });
+  it('supports CSS Color 4 color(srgb ...), none, % RGB, wide-gamut clamping, and rejects invalid syntax', () => {
+    const inks = ['rgb(23, 33, 46)', 'rgb(246, 248, 251)'];
+    expect(
+      contrastingInk(
+        'color(srgb 0.2549019607843137 0.5450980392156862 0.9019607843137255)',
+        'color(srgb 1 1 1)',
+        'red',
+        inks
+      )
+    ).toBe(inks[0]);
+    expect(
+      contrastingInk(
+        'color(srgb 0.0392156862745098 0.0784313725490196 0.11764705882352941)',
+        'color(srgb 1 1 1)',
+        'red',
+        inks
+      )
+    ).toBe(inks[1]);
+    expect(contrastingInk('rgb(0 0 0 / 10%)', 'color(srgb 1 1 1)', 'red', inks)).toBe(inks[0]);
+    expect(contrastingInk('color(srgb 1 1 1 / 10%)', 'color(srgb 0 0 0)', 'red', inks)).toBe(
+      inks[1]
+    );
+    expect(contrastingInk('color(srgb 1 none 1)', 'rgb(255, 255, 255)', 'red', inks)).toBe(inks[0]);
+    expect(contrastingInk('color(srgb 0 none 0 / none)', 'rgb(255, 255, 255)', 'red', inks)).toBe(
+      inks[0]
+    );
+    expect(contrastingInk('color(srgb 50% 75% 95% / 80%)', 'rgb(255, 255, 255)', 'red', inks)).toBe(
+      inks[0]
+    );
+    expect(contrastingInk('rgb(100% 100% 100%)', 'rgb(0, 0, 0)', 'red', inks)).toBe(inks[0]);
+    // Out-of-gamut sRGB channels clamp to [0, 255] instead of corrupting luminance.
+    expect(contrastingInk('color(srgb 1.5 -0.1 0.5)', 'rgb(255, 255, 255)', 'purple')).toBe(
+      '#000000'
+    );
+    expect(contrastingInk('rgb(300, -10, 0)', 'rgb(255, 255, 255)', 'purple')).toBe('#000000');
+    // Reject missing channel, 4-arg space syntax without `/`, comma+slash mix, and multi-slash.
+    expect(contrastingInk('color(srgb 1 1)', 'rgb(255, 255, 255)', 'purple')).toBe('purple');
+    expect(contrastingInk('color(srgb 1 0 0 0.5)', 'rgb(255, 255, 255)', 'purple')).toBe('purple');
+    expect(contrastingInk('rgb(1 0 0 0.5)', 'rgb(255, 255, 255)', 'purple')).toBe('purple');
+    expect(contrastingInk('color(srgb 1 0 0 / 0.5 / 0.5)', 'rgb(255, 255, 255)', 'purple')).toBe(
+      'purple'
+    );
+    expect(contrastingInk('rgb(0, 0, 0 / 50%)', 'rgb(255, 255, 255)', 'purple')).toBe('purple');
+  });
   it('uses softer entity inks only when they maintain readable contrast', () => {
     const inks = ['rgb(23, 33, 46)', 'rgb(246, 248, 251)'];
     expect(contrastingInk('rgb(65, 139, 230)', 'rgb(255, 255, 255)', 'red', inks)).toBe(inks[0]);
@@ -45,5 +89,29 @@ describe('source-colored metric emphasis', () => {
   it('preserves unsupported custom color spaces instead of substituting a neutral paint', () => {
     const paint = 'color(display-p3 1 0 0)';
     expect(inspectionFill(paint, 'rgb(255, 255, 255)')).toBe(paint);
+  });
+  it('computes the exact same Oklab lightness step for color(srgb ...), % RGB/alpha, clamped sRGB, and rejects malformed space syntax', () => {
+    expect(
+      inspectionFill(
+        'color(srgb 0.2549019607843137 0.5450980392156862 0.9019607843137255)',
+        'color(srgb 1 1 1)'
+      )
+    ).toBe('rgba(40, 116, 205, 1)');
+    expect(
+      inspectionFill(
+        'color(srgb 0.7843137254901961 0.396078431372549 0.5607843137254902 / 60%)',
+        'color(srgb 1 1 1)'
+      )
+    ).toBe('rgba(175, 78, 121, 0.6)');
+    expect(inspectionFill('rgba(200, 101, 143, 60%)', 'rgb(255, 255, 255)')).toBe(
+      'rgba(175, 78, 121, 0.6)'
+    );
+    expect(inspectionFill('color(srgb 1.5 -0.1 1)', 'rgb(255, 255, 255)')).toBe(
+      inspectionFill('rgb(255, 0, 255)', 'rgb(255, 255, 255)')
+    );
+    expect(inspectionFill('color(srgb 1 0 0 0.5)', 'rgb(255, 255, 255)')).toBe(
+      'color(srgb 1 0 0 0.5)'
+    );
+    expect(inspectionFill('rgb(1 0 0 0.5)', 'rgb(255, 255, 255)')).toBe('rgb(1 0 0 0.5)');
   });
 });

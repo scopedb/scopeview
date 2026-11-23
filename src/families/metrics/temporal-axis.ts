@@ -50,17 +50,17 @@ export interface TemporalStep {
   count: number;
 }
 
+const steps = (unit: TemporalStepUnit, counts: number[]): TemporalStep[] =>
+  counts.map((count) => ({ unit, count }));
+
 const TEMPORAL_STEPS: readonly TemporalStep[] = [
-  ...[1, 2, 5, 10, 20, 50, 100, 200, 500].map((count) => ({
-    unit: 'millisecond' as const,
-    count
-  })),
-  ...[1, 2, 5, 10, 15, 30].map((count) => ({ unit: 'second' as const, count })),
-  ...[1, 2, 5, 10, 15, 30].map((count) => ({ unit: 'minute' as const, count })),
-  ...[1, 2, 3, 6, 12].map((count) => ({ unit: 'hour' as const, count })),
-  ...[1, 2, 3, 7, 14].map((count) => ({ unit: 'day' as const, count })),
-  ...[1, 2, 3, 6].map((count) => ({ unit: 'month' as const, count })),
-  ...[1, 2, 5, 10].map((count) => ({ unit: 'year' as const, count }))
+  ...steps('millisecond', [1, 2, 5, 10, 20, 50, 100, 200, 500]),
+  ...steps('second', [1, 2, 5, 10, 15, 30]),
+  ...steps('minute', [1, 2, 5, 10, 15, 30]),
+  ...steps('hour', [1, 2, 3, 6, 12]),
+  ...steps('day', [1, 2, 3, 7, 14]),
+  ...steps('month', [1, 2, 3, 6]),
+  ...steps('year', [1, 2, 5, 10])
 ];
 
 // Calendar units select by their average length; their ticks still step whole months and years.

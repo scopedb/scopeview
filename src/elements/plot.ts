@@ -2,6 +2,7 @@ import type { CompiledChart } from '../families/metrics/document.js';
 import { layoutChart } from '../families/metrics/layout.js';
 import type { ChartRenderer } from './plot-contract.js';
 import type { AxisMode, Inspect } from '../core/scene.js';
+import type { ChartSession } from '../core/session.js';
 import { ChartRuntime } from '../runtime/chart-runtime.js';
 
 /** Metric/category family adapter for the shared browser runtime. */
@@ -13,9 +14,17 @@ export class Plot extends ChartRuntime implements ChartRenderer {
     canvas: HTMLElement,
     decoration: HTMLElement,
     inspect: Inspect,
-    invalidate?: () => void
+    invalidate?: () => void,
+    session?: ChartSession,
+    onRender?: () => void
   ) {
-    super(canvas, decoration, { inspection: inspect, keyboard: false, invalidate });
+    super(canvas, decoration, {
+      session,
+      inspection: inspect,
+      keyboard: false,
+      invalidate,
+      onRender
+    });
   }
   update(compiled: CompiledChart, hidden: Set<string>, axes: AxisMode = 'full') {
     const keys = JSON.stringify([...hidden].sort());

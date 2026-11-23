@@ -1,5 +1,6 @@
 import { object, choice, boolean, fail } from '../data/validation.js';
 import type { AxisMode } from '../core/scene.js';
+import { parseAxisMode } from '../views/options.js';
 
 export type ScopeChartAction =
   | 'inspect'
@@ -62,8 +63,7 @@ export function parseComponentOptions(value: unknown, family: 'metric' | 'hierar
     'inspector'
   ] as const)
     if (input[key] !== undefined) result[key] = boolean(input[key], `ui.${key}`);
-  if (input.axes !== undefined)
-    result.axes = choice(input.axes, ['full', 'minimal', 'none'], 'ui.axes');
+  if (input.axes !== undefined) result.axes = parseAxisMode(input.axes, 'ui.axes');
   if (input.toolbar !== undefined) {
     if (typeof input.toolbar === 'boolean') result.toolbar = input.toolbar;
     else {

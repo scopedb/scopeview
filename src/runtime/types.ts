@@ -1,4 +1,7 @@
+import type { PaintInvalidation } from '../core/painter.js';
 import type { ChartInteraction, ChartScene, Inspect, MeasureText } from '../core/scene.js';
+
+export type RefreshReason = PaintInvalidation | 'viewport';
 
 export type SceneLayout<Source> = (
   width: number,

@@ -98,26 +98,25 @@ export function parseTraceDocument(value: unknown): TraceDocument {
 }
 export function compileTrace(input: unknown): CompiledTrace {
   const document = parseTraceDocument(input);
-  const tree = hierarchy(document.spans, 'spans', (a, b) =>
-    BigInt(a.startTimeNs) < BigInt(b.startTimeNs)
-      ? -1
-      : BigInt(a.startTimeNs) > BigInt(b.startTimeNs)
-        ? 1
-        : 0
-  );
+  const parsed = new Map<TraceSpan, { start: bigint; end: bigint }>();
+  for (const span of document.spans)
+    parsed.set(span, { start: BigInt(span.startTimeNs), end: BigInt(span.endTimeNs) });
+  const tree = hierarchy(document.spans, 'spans', (a, b) => {
+    const startA = parsed.get(a)!.start,
+      startB = parsed.get(b)!.start;
+    return startA < startB ? -1 : startA > startB ? 1 : 0;
+  });
   const timings = new Map<string, TraceTiming>(),
     issues = [...tree.issues];
   let startTimeNs = 0n,
     endTimeNs = 0n;
   for (const [index, source] of document.spans.entries()) {
-    const start = BigInt(source.startTimeNs),
-      end = BigInt(source.endTimeNs);
+    const { start, end } = parsed.get(source)!;
     if (!index || start < startTimeNs) startTimeNs = start;
     if (!index || end > endTimeNs) endTimeNs = end;
     const intervals = (tree.children.get(source.id) ?? [])
       .map((child) => {
-        const childStart = BigInt(child.startTimeNs),
-          childEnd = BigInt(child.endTimeNs);
+        const { start: childStart, end: childEnd } = parsed.get(child)!;
         if (childStart < start || childEnd > end)
           issues.push({ kind: 'outside-parent', id: child.id, parentId: source.id });
         return {

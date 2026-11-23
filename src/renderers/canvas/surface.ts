@@ -2,8 +2,8 @@
 export class CanvasSurface {
   readonly canvas = document.createElement('canvas');
   readonly context: CanvasRenderingContext2D;
-  private width = 1;
-  private height = 1;
+  scaleX = 1;
+  scaleY = 1;
 
   constructor(name: string) {
     this.canvas.dataset.layer = name;
@@ -13,13 +13,15 @@ export class CanvasSurface {
     this.context = context;
   }
   resize(width: number, height: number, density: number) {
-    this.width = width;
-    this.height = height;
     const pixelsWide = Math.max(1, Math.round(width * density));
     const pixelsHigh = Math.max(1, Math.round(height * density));
+    const changed = this.canvas.width !== pixelsWide || this.canvas.height !== pixelsHigh;
     // Changing dimensions destroys context state and may reallocate its backing store.
     if (this.canvas.width !== pixelsWide) this.canvas.width = pixelsWide;
     if (this.canvas.height !== pixelsHigh) this.canvas.height = pixelsHigh;
+    this.scaleX = this.canvas.width / width;
+    this.scaleY = this.canvas.height / height;
+    return changed;
   }
   paint(font: string, draw: (context: CanvasRenderingContext2D) => void) {
     const ctx = this.context;
@@ -27,7 +29,7 @@ export class CanvasSurface {
     // Dimension assignment gives older Canvas implementations the same clean frame.
     if (typeof ctx.reset === 'function') ctx.reset();
     else this.canvas.width = this.canvas.width;
-    ctx.setTransform(this.canvas.width / this.width, 0, 0, this.canvas.height / this.height, 0, 0);
+    ctx.setTransform(this.scaleX, 0, 0, this.scaleY, 0, 0);
     ctx.font = font;
     ctx.lineJoin = 'round';
     ctx.save();

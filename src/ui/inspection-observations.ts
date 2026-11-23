@@ -44,7 +44,7 @@ export function renderObservations(read: () => ObservationReading) {
   const pageSize = tokenObservationPageSize,
     pages = Math.ceil(neighbors.length / pageSize),
     list = node('div', 'tooltip-observation-list'),
-    navigation = node('div', 'tooltip-footer tooltip-observation-pages'),
+    navigation = node('div', 'tooltip-observation-pages'),
     before = actionButton('Previous', () => {
       read().page--;
       draw();

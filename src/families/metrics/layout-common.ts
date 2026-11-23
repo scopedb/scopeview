@@ -1,4 +1,6 @@
 import type { CompiledChart } from './document.js';
+import type { ResultColumnId } from '../../data/result.js';
+import { chartColumn } from './dataset.js';
 import { sparseTicks } from '../../core/axes.js';
 import { layoutAxisLabels, layoutDataLabels, type DataLabel } from '../../core/labels.js';
 import { formatQuantity } from '../../data/semantics.js';
@@ -14,6 +16,7 @@ import type {
 import type { NumericAxis } from './scale.js';
 import { chartAriaLabel } from './accessibility.js';
 import {
+  labelSize as tokenLabelSize,
   reportAxisTicks as tokenReportAxisTicks,
   reportDirectLabels as tokenReportDirectLabels
 } from '../../theme/visual-tokens.js';
@@ -47,7 +50,10 @@ export function frame(
     width: Math.max(1, width - x - 16 - inset),
     height: Math.max(
       1,
-      height - y - (caption ? 56 : 30) - Math.max(0, (measure.fontSize ?? 11) - 11) * 2
+      height -
+        y -
+        (caption ? 56 : 30) -
+        Math.max(0, (measure.fontSize ?? tokenLabelSize) - tokenLabelSize) * 2
     )
   };
 }
@@ -123,11 +129,8 @@ export function layoutContext(
     return layoutAxisLabels(scene, measure);
   };
   const visible = compiled.series.filter((series) => !hidden.has(series.name));
-  const quantity = (id: string, source: readonly (string | null)[]) =>
-    formatQuantity(
-      source[dataset.columns.find((c) => c.id === id)!.columnIndex],
-      compiled.displays.get(id)
-    );
+  const quantity = (id: ResultColumnId, source: readonly (string | null)[]) =>
+    formatQuantity(source[chartColumn(dataset, id)!.columnIndex], compiled.displays.get(id));
   const model: ChartScene = {
     width,
     height,
@@ -139,7 +142,7 @@ export function layoutContext(
     interactions: [],
     interactionByKey: new Map(),
     ariaLabel: chartAriaLabel(dataset, config),
-    interactive: compiled.document.options?.interactive ?? presentation !== 'sparkline',
+    interactive: compiled.interactive,
     provenance: compiled.document.semantics?.provenance
   };
   return { model, finish, visible, quantity, labels, showLabels, full, miniature, report };
