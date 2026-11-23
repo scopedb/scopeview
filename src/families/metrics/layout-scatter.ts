@@ -2,7 +2,10 @@ import { layoutContext, frame, yTicks, add, type MetricLayout } from './layout-c
 import { extent, linear, numericAxis } from './scale.js';
 import { chartColumnLabel } from './dataset.js';
 import { prepareScatterData } from './prepared.js';
-import { pointFillOpacity as tokenPointFillOpacity } from '../../theme/visual-tokens.js';
+import {
+  pointFillOpacity as tokenPointFillOpacity,
+  pointPinnedGrowth as tokenPointPinnedGrowth
+} from '../../theme/visual-tokens.js';
 
 export const layoutScatter: MetricLayout = (
   compiled,
@@ -28,7 +31,7 @@ export const layoutScatter: MetricLayout = (
   );
   model.emphasis = 'point';
   const rows = prepareScatterData(dataset, mapping).filter((row) => !hidden.has(row.series));
-  const maximum = extent(rows.map((row) => row.size ?? 0))[1];
+  const maximum = mapping.size ? extent(rows.map((row) => row.size ?? 0))[1] : 0;
   const maxRadius = width < 480 ? 14 : 20;
   const inset = mapping.size ? maxRadius : 5;
   const xAxis = numericAxis(
@@ -40,8 +43,14 @@ export const layoutScatter: MetricLayout = (
     height < 240 ? 3 : 5
   );
   const r = frame(width, height, yAxis, !miniature, measure, inset, miniature);
+  const clipPad = inset + tokenPointPinnedGrowth;
   model.rect = r;
-  model.clipRect = { x: r.x - 22, y: r.y - 22, width: r.width + 44, height: r.height + 44 };
+  model.clipRect = {
+    x: r.x - clipPad,
+    y: r.y - clipPad,
+    width: r.width + clipPad * 2,
+    height: r.height + clipPad * 2
+  };
   const x = linear(xAxis.domain, [r.x, r.x + r.width]);
   const y = linear(yAxis.domain, [r.y + r.height, r.y]);
   model.xTicks = xAxis.ticks.map((value, i) => ({ position: x(value), label: xAxis.labels[i] }));
@@ -72,33 +81,24 @@ export const layoutScatter: MetricLayout = (
       opacity: tokenPointFillOpacity,
       key
     });
-    add(model, { key, anchor, points: [], sources: [row.source] }, () => ({
-      title: mapping.color
-        ? `${chartColumnLabel(dataset, mapping.color)}: ${row.series}`
-        : undefined,
-      color: mapping.color ? fill : undefined,
-      rows: [
-        {
-          label: chartColumnLabel(dataset, mapping.x),
-          value: quantity(mapping.x, row.source),
-          format: 'number'
-        },
-        {
-          label: chartColumnLabel(dataset, mapping.y),
-          value: quantity(mapping.y, row.source),
-          format: 'number'
-        },
-        ...(mapping.size && row.size !== undefined
-          ? [
-              {
-                label: chartColumnLabel(dataset, mapping.size),
-                format: 'number' as const,
-                value: quantity(mapping.size, row.source)
-              }
-            ]
-          : [])
-      ]
-    }));
+    add(model, { key, anchor, points: [], sources: [row.source] }, () => {
+      const item = (id: typeof mapping.x) => ({
+        label: chartColumnLabel(dataset, id),
+        value: quantity(id, row.source),
+        format: 'number' as const
+      });
+      return {
+        title: mapping.color
+          ? `${chartColumnLabel(dataset, mapping.color)}: ${row.series}`
+          : undefined,
+        color: mapping.color ? fill : undefined,
+        rows: [
+          item(mapping.x),
+          item(mapping.y),
+          ...(mapping.size && row.size !== undefined ? [item(mapping.size)] : [])
+        ]
+      };
+    });
   }
   return finish(model);
 };

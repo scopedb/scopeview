@@ -52,18 +52,28 @@ function contains(rect: PlotRect, p: Position) {
   );
 }
 
+function cellKey(x: number, y: number): number {
+  return (x << 16) | (y & 0xffff);
+}
+function circleHit(mark: Extract<SceneMark, { kind: 'circle' }>, p: Position) {
+  return Math.hypot(p.x - mark.x, p.y - mark.y) <= mark.radius + 0.75;
+}
+
 /** CSS-pixel item lookup, shared by SVG and Canvas. Later-painted items win. */
 export class SceneHitIndex<Source> {
-  #cells = new Map<string, Entry[]>();
+  #scene: ChartScene<Source>;
+  #cells = new Map<number, Entry[]>();
   #global: Entry[] = [];
-  constructor(private scene: ChartScene<Source>) {
+  constructor(scene: ChartScene<Source>) {
+    this.#scene = scene;
     if (scene.hitMode !== 'item') return;
-    scene.marks.forEach((mark, order) => {
-      if (!mark.key || mark.kind === 'text') return;
-      const entry: Entry = { mark, order };
+    let order = 0;
+    for (const mark of scene.marks) {
+      const entry: Entry = { mark, order: order++ };
+      if (!mark.key || mark.kind === 'text') continue;
       if (mark.kind === 'path') {
         this.#global.push(entry);
-        return;
+        continue;
       }
       const radius = mark.kind === 'circle' ? mark.radius + 0.75 : 0;
       const bounds =
@@ -85,76 +95,86 @@ export class SceneHitIndex<Source> {
       else
         for (let x = left; x <= right; x++)
           for (let y = top; y <= bottom; y++) {
-            const key = `${x}:${y}`,
-              values = this.#cells.get(key) ?? [];
+            const key = cellKey(x, y);
+            let values = this.#cells.get(key);
+            if (!values) {
+              values = [];
+              this.#cells.set(key, values);
+            }
             values.push(entry);
-            this.#cells.set(key, values);
           }
-    });
+    }
+  }
+  #cell(position: Position) {
+    return this.#cells.get(cellKey(Math.floor(position.x / 64), Math.floor(position.y / 64)));
+  }
+  #outside(p: Position, checkClip: boolean) {
+    const s = this.#scene,
+      clip = checkClip ? (s.clipRect ?? s.rect) : null;
+    return (
+      s.interactive === false ||
+      !(
+        Number.isFinite(p.x) &&
+        Number.isFinite(p.y) &&
+        p.x >= 0 &&
+        p.x <= s.width &&
+        p.y >= 0 &&
+        p.y <= s.height
+      ) ||
+      (!!clip && !contains(clip, p))
+    );
   }
   hit(position: Position, pathHit?: PathHit): SceneInteraction<Source> | null {
-    const scene = this.scene;
-    if (
-      scene.interactive === false ||
-      !contains({ x: 0, y: 0, width: scene.width, height: scene.height }, position)
-    )
-      return null;
+    const scene = this.#scene;
+    if (this.#outside(position, false)) return null;
     if (scene.hitMode !== 'item') return nearestInteraction(scene, position);
-    const clip = scene.clipRect ?? scene.rect;
-    if (clip && !contains(clip, position)) return null;
+    if (this.#outside(position, true)) return null;
     let winner: Entry | null = null;
-    const values =
-      this.#cells.get(`${Math.floor(position.x / 64)}:${Math.floor(position.y / 64)}`) ?? [];
-    for (const candidates of [values, this.#global])
-      for (let i = candidates.length - 1; i >= 0; i--) {
-        const entry = candidates[i],
-          mark = entry.mark;
-        if (winner && entry.order <= winner.order) break;
-        if (!scene.interactionByKey.has(mark.key!)) continue;
-        const hit =
-          mark.kind === 'rect'
-            ? mark.fill !== 'none' &&
-              mark.width > 0 &&
-              mark.height > 0 &&
-              contains(entry.bounds ?? mark, position)
-            : mark.kind === 'circle'
-              ? Math.hypot(position.x - mark.x, position.y - mark.y) <= mark.radius + 0.75
-              : mark.kind === 'path' && !!pathHit?.(mark, position);
-        if (hit) {
-          winner = entry;
-          break;
+    for (const candidates of [this.#cell(position), this.#global])
+      if (candidates)
+        for (let i = candidates.length - 1; i >= 0; i--) {
+          const entry = candidates[i],
+            mark = entry.mark;
+          if (winner && entry.order <= winner.order) break;
+          if (!scene.interactionByKey.has(mark.key!)) continue;
+          const hit =
+            mark.kind === 'rect'
+              ? mark.fill !== 'none' &&
+                mark.width > 0 &&
+                mark.height > 0 &&
+                contains(entry.bounds ?? mark, position)
+              : mark.kind === 'circle'
+                ? circleHit(mark, position)
+                : mark.kind === 'path' && !!pathHit?.(mark, position);
+          if (hit) {
+            winner = entry;
+            break;
+          }
         }
-      }
     return winner ? (scene.interactionByKey.get(winner.mark.key!) ?? null) : null;
   }
   /** Disclose overlapping point targets without jitter or changing the single-hit policy. */
   pointHits(position: Position): SceneInteraction<Source>[] {
-    const scene = this.scene,
-      clip = scene.clipRect ?? scene.rect;
-    if (
-      scene.interactive === false ||
-      scene.emphasis !== 'point' ||
-      !contains({ x: 0, y: 0, width: scene.width, height: scene.height }, position) ||
-      (clip && !contains(clip, position))
-    )
-      return [];
-    const entries = [
-      ...(this.#cells.get(`${Math.floor(position.x / 64)}:${Math.floor(position.y / 64)}`) ?? []),
-      ...this.#global
-    ].filter(
-      ({ mark }) =>
-        mark.kind === 'circle' &&
-        mark.radius > 0 &&
-        Math.hypot(position.x - mark.x, position.y - mark.y) <= mark.radius + 0.75
-    );
-    const keys = new Set<string>();
-    return entries
-      .sort((a, b) => a.order - b.order)
-      .flatMap(({ mark }) => {
-        const value = scene.interactionByKey.get(mark.key!);
-        if (!value || keys.has(value.key)) return [];
+    const scene = this.#scene;
+    if (scene.emphasis !== 'point' || this.#outside(position, true)) return [];
+    const entries: Entry[] = [];
+    for (const candidates of [this.#cell(position), this.#global])
+      if (candidates)
+        for (const entry of candidates) {
+          const { mark } = entry;
+          if (mark.kind === 'circle' && mark.radius > 0 && circleHit(mark, position))
+            entries.push(entry);
+        }
+    if (!entries.length) return [];
+    const keys = new Set<string>(),
+      result: SceneInteraction<Source>[] = [];
+    for (const { mark } of entries.sort((a, b) => a.order - b.order)) {
+      const value = scene.interactionByKey.get(mark.key!);
+      if (value && !keys.has(value.key)) {
         keys.add(value.key);
-        return [value];
-      });
+        result.push(value);
+      }
+    }
+    return result;
   }
 }

@@ -12,10 +12,8 @@ import {
 import { ViewportSession, type ViewportState } from '../core/viewport.js';
 import type { Entity, EntityDocument, Hierarchy } from '../families/hierarchy/model.js';
 import {
-  parseComponentOptions,
-  type EntityComponentOptions
-} from '../families/component-options.js';
-import {
+  DEFAULT_ROW_HEIGHT,
+  hierarchyPadding,
   hierarchyViewportHeight,
   layoutHierarchy,
   type HierarchyView
@@ -36,14 +34,22 @@ import {
   positionInspection,
   dockInspection
 } from '../ui/inspection.js';
+import { bindInspectionDismiss } from '../ui/inspection-floating.js';
 import { node } from '../ui/dom.js';
 import {
   upgradeProperties,
-  documentMutated,
+  observeDocumentScript,
   ElementTheme,
   watchColorScheme,
   type ScopeTheme
 } from './lifecycle.js';
+import {
+  renderDataTable,
+  setDataTableOpen,
+  type DataTableElements,
+  type DataTableModel
+} from './data-table.js';
+import { parseComponentOptions, type EntityComponentOptions } from './options.js';
 import {
   hierarchyControls,
   readControls,
@@ -102,7 +108,7 @@ export class HierarchyElement<
   #renderedCompiled: Compiled | null = null;
   #ui: EntityComponentOptions = {};
   get #options() {
-    return { ...this.#ui, interactive: this.#compiled?.document.options?.interactive };
+    return { ...this.#ui, interactive: this.#view?.interactive };
   }
   #view: HierarchyView<Source> | null = null;
   #viewport = new ViewportSession();
@@ -112,6 +118,32 @@ export class HierarchyElement<
   #events: AbortController | null = null;
   #mutation: MutationObserver | null = null;
   #root: ShadowRoot;
+  #dom: {
+    header: HTMLElement;
+    title: HTMLElement;
+    description: HTMLElement;
+    viewport: HTMLElement;
+    canvas: HTMLElement;
+    decoration: HTMLElement;
+    treeScroll: HTMLElement;
+    treeScrollSizer: HTMLElement;
+    status: HTMLElement;
+    summary: HTMLElement;
+    toolbarSlot: HTMLSlotElement;
+    inspect: HTMLButtonElement;
+    zoomIn: HTMLButtonElement;
+    zoomOut: HTMLButtonElement;
+    reset: HTMLButtonElement;
+    collapse: HTMLButtonElement;
+    data: HTMLButtonElement;
+    tooltip: HTMLElement;
+    raw: HTMLElement;
+    pagination: HTMLElement;
+    paginationLabel: HTMLElement;
+    previous: HTMLButtonElement;
+    next: HTMLButtonElement;
+    live: HTMLElement;
+  };
   #appearance = new ElementTheme(this);
   #error: string | null = null;
   #propertySet = false;
@@ -132,6 +164,13 @@ export class HierarchyElement<
   #stateTransaction = false;
   #linkedHighlight: LinkedHighlight | null = null;
   #controlEvents = new ControlEvents();
+  #lastStatusState = '';
+  #lastStatusMessage: string | null = null;
+  #lastSummary = '';
+  #lastTreeHeight = '';
+  #lastContentHeight = '';
+  #lastRailTop = '';
+  #lastRailBottom = '';
   constructor(
     readonly kind: Context['kind'],
     private compile: (input: unknown) => Compiled,
@@ -172,9 +211,44 @@ export class HierarchyElement<
       <p class="sr-only" id="help">Arrows inspect, Home/End jump, Enter/Space pins, Escape dismisses. +/− zoom, Shift+Left/Right pan, Page Up/Down scroll, 0 resets. Drag pans; Ctrl/Command+wheel zooms. View data shows original values.</p>
       <span class="sr-only live" role="status" aria-live="polite" aria-atomic="true"></span>`;
     this.#root.append(css, shell);
+    const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
+      this.#root.querySelector<T>(selector)!;
+    this.#dom = {
+      header: q('header'),
+      title: q('h2'),
+      description: q('.description'),
+      viewport: q('.viewport'),
+      canvas: q('.canvas'),
+      decoration: q('.decoration'),
+      treeScroll: q('.tree-scroll'),
+      treeScrollSizer: q('.tree-scroll>div'),
+      status: q('.status'),
+      summary: q('.summary'),
+      toolbarSlot: q<HTMLSlotElement>('slot[name="toolbar"]'),
+      inspect: q<HTMLButtonElement>('.inspect'),
+      zoomIn: q<HTMLButtonElement>('.zoom-in'),
+      zoomOut: q<HTMLButtonElement>('.zoom-out'),
+      reset: q<HTMLButtonElement>('.reset'),
+      collapse: q<HTMLButtonElement>('.collapse'),
+      data: q<HTMLButtonElement>('.data'),
+      tooltip: q('.tooltip'),
+      raw: q('.raw'),
+      pagination: q('.pagination'),
+      paginationLabel: q('.pagination span'),
+      previous: q<HTMLButtonElement>('.previous'),
+      next: q<HTMLButtonElement>('.next'),
+      live: q('.live')
+    };
   }
-  #el<T extends HTMLElement = HTMLElement>(selector: string) {
-    return this.#root.querySelector<T>(selector)!;
+  get #tableElements(): DataTableElements {
+    return {
+      raw: this.#dom.raw,
+      toggle: this.#dom.data,
+      pagination: this.#dom.pagination,
+      pageLabel: this.#dom.paginationLabel,
+      previous: this.#dom.previous,
+      next: this.#dom.next
+    };
   }
   get document(): Doc | null {
     return this.#compiled ? structuredClone(this.#compiled.document) : null;
@@ -281,6 +355,7 @@ export class HierarchyElement<
   }
   set theme(value: ScopeTheme) {
     this.#appearance.value = value;
+    this.#repaint();
   }
   addEventListener<K extends keyof HierarchyEventMap<Source, Context>>(
     type: K,
@@ -370,12 +445,12 @@ export class HierarchyElement<
     }
     this.#runtime?.paint();
     const target = this.#view?.byId.get(id)?.interaction;
-    if (!target || !this.#runtime || this.#view?.document.options?.interactive === false) return;
+    if (!target || !this.#runtime || !this.#view?.interactive) return;
     this.#reveal(target);
     this.#runtime.session.inspect(target.key, options.pin ?? false, true);
     this.#runtime.focus(this.#runtime.session.active);
     this.#showInspection(null, true);
-    this.#el('.canvas').focus({ preventScroll: true });
+    this.#dom.canvas.focus({ preventScroll: true });
   }
   resetViewport() {
     this.#input?.cancel();
@@ -404,11 +479,13 @@ export class HierarchyElement<
       const id = this.#runtime?.session.active?.sources[0]?.id;
       if (id) this.toggleNode(id);
     } else if (action === 'toggle-data') {
-      const raw = this.#el('.raw');
-      raw.hidden = !raw.hidden;
-      this.#el('.data').setAttribute('aria-expanded', String(!raw.hidden));
-      this.#el('.data').textContent = raw.hidden ? 'View data' : 'Hide data';
-      this.#table();
+      this.#page = setDataTableOpen(
+        this.#tableElements,
+        this.#dom.raw.hidden,
+        this.#ui.dataTable !== false,
+        this.#page,
+        () => this.#tableModel()
+      );
     }
     this.#notifyControls();
     return true;
@@ -419,6 +496,12 @@ export class HierarchyElement<
   refresh() {
     if (this.#runtime) this.#runtime.refresh();
     else this.#schedule();
+  }
+  #repaint() {
+    if (!this.isConnected) return;
+    if (this.#runtime && !this.loading && this.error === null && this.#error === null)
+      this.#runtime.refresh('paint');
+    else if (!this.dataset.state) this.#schedule();
   }
   #rebuild() {
     this.#view = this.#compiled ? this.createView(this.#compiled, this.#collapsed) : null;
@@ -443,7 +526,7 @@ export class HierarchyElement<
       !this.#pendingPin
     )
       this.#clearInspection();
-    this.#runtime?.refresh();
+    this.#runtime?.refresh('viewport');
     this.#emit('scope-viewport-change', { ...this.viewport });
     this.#stateChanged();
   }
@@ -453,19 +536,6 @@ export class HierarchyElement<
       this.#frame = 0;
       this.#render();
     });
-  }
-  #readJSON() {
-    const json = this.querySelector('script[type="application/json"]');
-    if (!json) return;
-    try {
-      this.document = JSON.parse(json.textContent ?? '');
-    } catch {
-      this.#compiled = null;
-      this.#view = null;
-      this.#error = 'Invalid chart JSON.';
-      this.#schedule();
-    }
-    this.#propertySet = false;
   }
   connectedCallback() {
     upgradeProperties(this, [
@@ -480,26 +550,40 @@ export class HierarchyElement<
     ]);
     this.#events = new AbortController();
     const signal = this.#events.signal;
-    watchColorScheme(() => this.refresh(), signal);
-    const bind = (selector: string, callback: () => void) =>
-      this.#el(selector).addEventListener('click', callback, { signal });
-    for (const [action, selector] of Object.entries(hierarchyControls))
-      bind(selector, () => this.performAction(action as ScopeChartAction));
-    this.#el('slot[name="toolbar"]').addEventListener('slotchange', () => this.#schedule(), {
-      signal
-    });
-    bind('.previous', () => {
-      this.#page--;
-      this.#table();
-    });
-    bind('.next', () => {
-      this.#page++;
-      this.#table();
-    });
-    this.#el('.tree-scroll').addEventListener(
+    watchColorScheme(() => this.#repaint(), signal);
+    const controlButtons = {
+      inspect: this.#dom.inspect,
+      'zoom-in': this.#dom.zoomIn,
+      'zoom-out': this.#dom.zoomOut,
+      'reset-view': this.#dom.reset,
+      'toggle-collapse': this.#dom.collapse,
+      'toggle-data': this.#dom.data
+    } as const;
+    for (const [action, button] of Object.entries(controlButtons))
+      button.addEventListener('click', () => this.performAction(action as ScopeChartAction), {
+        signal
+      });
+    this.#dom.toolbarSlot.addEventListener('slotchange', () => this.#schedule(), { signal });
+    this.#dom.previous.addEventListener(
+      'click',
+      () => {
+        this.#page--;
+        this.#table();
+      },
+      { signal }
+    );
+    this.#dom.next.addEventListener(
+      'click',
+      () => {
+        this.#page++;
+        this.#table();
+      },
+      { signal }
+    );
+    this.#dom.treeScroll.addEventListener(
       'scroll',
       () => {
-        const scrollOffset = this.#el('.tree-scroll').scrollTop;
+        const scrollOffset = this.#dom.treeScroll.scrollTop;
         if (Math.abs(scrollOffset - this.viewport.scrollOffset) < 0.5) return;
         this.#viewport.set({ ...this.viewport, scrollOffset });
         this.#changedViewport();
@@ -512,36 +596,41 @@ export class HierarchyElement<
         if ((event as KeyboardEvent).key === 'Escape' && this.#runtime?.session.active) {
           event.preventDefault();
           this.#clearInspection();
-          this.#el('.canvas').focus({ preventScroll: true });
+          this.#dom.canvas.focus({ preventScroll: true });
         }
       },
       { signal }
     );
-    const outside = (event: Event) => {
-      if (this.#ui.dismissOnOutside !== false && !event.composedPath().includes(this))
-        this.#clearInspection();
-    };
-    document.addEventListener('pointerdown', outside, { signal });
-    document.addEventListener('focusin', outside, { signal });
-    window.addEventListener(
-      'scroll',
-      (event) => {
+    bindInspectionDismiss(
+      this,
+      this.#dom.tooltip,
+      () => Boolean(this.#runtime?.session.pinned || this.#runtime?.session.keyboardInspection),
+      (outside, event) => {
         if (
-          event.composedPath().includes(this.#el('.tooltip')) ||
-          event.composedPath().includes(this.#el('.tree-scroll'))
+          outside
+            ? this.#ui.dismissOnOutside !== false
+            : !event.composedPath().includes(this.#dom.treeScroll)
         )
-          return;
-        if (this.#runtime?.session.pinned || this.#runtime?.session.keyboardInspection)
-          this.#placeTooltip();
-        else this.#clearInspection();
+          this.#clearInspection();
       },
-      { capture: true, signal }
+      (event) => {
+        if (!event.composedPath().includes(this.#dom.treeScroll)) this.#placeTooltip();
+      },
+      signal
     );
-    this.#mutation = new MutationObserver((records) => {
-      if (!this.#propertySet && documentMutated(records)) this.#readJSON();
-    });
-    this.#mutation.observe(this, { childList: true, subtree: true, characterData: true });
-    if (!this.#propertySet) this.#readJSON();
+    this.#mutation = observeDocumentScript(
+      this,
+      () => !this.#propertySet,
+      (value) => {
+        this.document = value;
+        this.#propertySet = false;
+      },
+      (message) => {
+        this.updateDocument(undefined);
+        this.#error = message;
+        this.#propertySet = false;
+      }
+    );
     this.#schedule();
   }
   disconnectedCallback() {
@@ -551,13 +640,20 @@ export class HierarchyElement<
     this.#mutation = null;
     this.#events?.abort();
     this.#events = null;
+    this.#lastStatusState = '';
+    this.#lastStatusMessage = null;
+    this.#lastSummary = '';
+    this.#lastTreeHeight = '';
+    this.#lastContentHeight = '';
+    this.#lastRailTop = '';
+    this.#lastRailBottom = '';
     this.#clearInspection();
     this.#dispose();
   }
   attributeChangedCallback(name: string) {
     if (!this.isConnected) return;
     if (name === 'loading' || name === 'error') this.#schedule();
-    else this.refresh();
+    else this.#repaint();
   }
   #dispose() {
     this.#runtime?.dispose();
@@ -567,11 +663,15 @@ export class HierarchyElement<
     this.#input = null;
   }
   #status(state: string, message: string | null) {
-    this.dataset.state = state;
-    this.#el('.status').hidden = message === null;
-    this.#el('.status').textContent = message;
-    this.#el('.status').className = `status ${state}`;
-    this.#el('.viewport').setAttribute('aria-busy', String(state === 'loading'));
+    if (state !== this.#lastStatusState || message !== this.#lastStatusMessage) {
+      this.#lastStatusState = state;
+      this.#lastStatusMessage = message;
+      this.dataset.state = state;
+      this.#dom.status.hidden = message === null;
+      this.#dom.status.textContent = message;
+      this.#dom.status.className = `status ${state}`;
+      this.#dom.viewport.setAttribute('aria-busy', String(state === 'loading'));
+    }
     this.#notifyControls();
   }
   #render() {
@@ -579,19 +679,28 @@ export class HierarchyElement<
       view = this.#view;
     const title = compiled?.document.title ?? '',
       description = compiled?.document.description ?? '';
-    this.#el('header').hidden = this.#ui.header === false || (!title && !description);
-    this.#el('h2').textContent = title;
-    this.#el('.description').textContent = description;
-    this.#el('.description').hidden = !description;
+    this.#dom.header.hidden = this.#ui.header === false || (!title && !description);
+    this.#dom.title.textContent = title;
+    this.#dom.description.textContent = description;
+    this.#dom.description.hidden = !description;
     renderToolbar(this.#root, this.#options, hierarchyControls);
-    this.#el('.viewport').style.setProperty(
-      '--scope-chart-content-height',
-      `${(view?.rowCount ?? 0) * (view?.rowHeight ?? 24) + 64}px`
-    );
+    const padding = hierarchyPadding(this.#ui.axes ?? 'full');
+    const contentHeight = `${(view?.rowCount ?? 0) * (view?.rowHeight ?? DEFAULT_ROW_HEIGHT) + padding.top + padding.bottom}px`;
+    if (contentHeight !== this.#lastContentHeight) {
+      this.#lastContentHeight = contentHeight;
+      this.#dom.viewport.style.setProperty('--scope-chart-content-height', contentHeight);
+    }
     const message = this.error ?? this.#error;
     const blocked = this.loading || message !== null || !compiled || !view?.items.length;
-    for (const button of this.#root.querySelectorAll<HTMLButtonElement>('.toolbar button'))
-      button.disabled = blocked;
+    for (const button of [
+      this.#dom.inspect,
+      this.#dom.zoomIn,
+      this.#dom.zoomOut,
+      this.#dom.reset,
+      this.#dom.collapse,
+      this.#dom.data
+    ])
+      if (button.disabled !== blocked) button.disabled = blocked;
     this.#table();
     if (blocked) {
       const saved = this.loading && compiled && message === null ? this.viewState : null;
@@ -600,8 +709,8 @@ export class HierarchyElement<
       this.#dispose();
       if (saved) this.#applyState(saved);
       this.#stateTransaction = false;
-      this.#el('.tree-scroll').hidden = true;
-      this.#el('.summary').hidden = true;
+      this.#dom.treeScroll.hidden = true;
+      this.#dom.summary.hidden = true;
       const state =
         message !== null ? 'error' : this.loading ? 'loading' : compiled ? 'empty' : 'idle';
       this.#status(
@@ -619,13 +728,13 @@ export class HierarchyElement<
       return;
     }
     if (!this.#runtime) {
-      const canvas = this.#el('.canvas');
+      const canvas = this.#dom.canvas;
       this.#input = new ViewportController(canvas, this.#viewport, {
         rect: () => this.scene?.rect,
-        enabled: () => this.#view?.document.options?.interactive !== false,
+        enabled: () => this.#view?.interactive !== false,
         onChange: () => this.#changedViewport()
       });
-      this.#runtime = new ChartRuntime<Source>(canvas, this.#el('.decoration'), {
+      this.#runtime = new ChartRuntime<Source>(canvas, this.#dom.decoration, {
         layout: (width, height, measure) => {
           const current = this.#view!;
           this.#viewport.configure({
@@ -669,22 +778,45 @@ export class HierarchyElement<
       this.#pendingPin = undefined;
       this.#runtime!.focus(this.#runtime!.session.active);
     }
-    const rail = this.#el('.tree-scroll');
-    rail.hidden =
+    const rail = this.#dom.treeScroll;
+    if (scene.rect) {
+      const top = `${scene.rect.y}px`;
+      const bottom = `${Math.max(0, scene.height - scene.rect.y - scene.rect.height)}px`;
+      if (top !== this.#lastRailTop) {
+        this.#lastRailTop = top;
+        rail.style.top = top;
+      }
+      if (bottom !== this.#lastRailBottom) {
+        this.#lastRailBottom = bottom;
+        rail.style.bottom = bottom;
+      }
+    }
+    const railHidden =
       scene.interactive === false || view.rowCount * view.rowHeight <= scene.rect!.height;
-    this.#el('.tree-scroll>div').style.height = `${view.rowCount * view.rowHeight}px`;
+    if (rail.hidden !== railHidden) rail.hidden = railHidden;
+    const treeHeight = `${view.rowCount * view.rowHeight}px`;
+    if (treeHeight !== this.#lastTreeHeight) {
+      this.#lastTreeHeight = treeHeight;
+      this.#dom.treeScrollSizer.style.height = treeHeight;
+    }
     if (Math.abs(rail.scrollTop - this.viewport.scrollOffset) > 0.5)
       rail.scrollTop = this.viewport.scrollOffset;
-    for (const selector of ['.inspect', '.zoom-in', '.zoom-out', '.reset'])
-      this.#el<HTMLButtonElement>(selector).disabled = scene.interactive === false;
-    this.#el<HTMLButtonElement>('.data').disabled = this.#ui.dataTable === false;
-    const summary = this.#el('.summary');
-    summary.hidden = this.#ui.summary === false;
+    const controlsDisabled = scene.interactive === false;
+    for (const button of [this.#dom.inspect, this.#dom.zoomIn, this.#dom.zoomOut, this.#dom.reset])
+      if (button.disabled !== controlsDisabled) button.disabled = controlsDisabled;
+    const dataDisabled = this.#ui.dataTable === false;
+    if (this.#dom.data.disabled !== dataDisabled) this.#dom.data.disabled = dataDisabled;
+    const summaryHidden = this.#ui.summary === false;
+    if (this.#dom.summary.hidden !== summaryHidden) this.#dom.summary.hidden = summaryHidden;
     const coverage =
       this.kind === 'trace'
         ? ((compiled.document as EntityDocument & { coverage?: string }).coverage ?? 'unknown')
         : null;
-    summary.textContent = `${compiled.hierarchy.sources.length.toLocaleString('en-US')} nodes${coverage ? ` · ${coverage} trace coverage` : ''}${view.issues.length ? ` · ${view.issues.length} relationship warning${view.issues.length === 1 ? '' : 's'}` : ''}`;
+    const summaryText = `${compiled.hierarchy.sources.length.toLocaleString('en-US')} nodes${coverage ? ` · ${coverage} trace coverage` : ''}${view.issues.length ? ` · ${view.issues.length} relationship warning${view.issues.length === 1 ? '' : 's'}` : ''}`;
+    if (summaryText !== this.#lastSummary) {
+      this.#lastSummary = summaryText;
+      this.#dom.summary.textContent = summaryText;
+    }
     this.#status('ready', null);
     if (compiled !== this.#compiled || !this.isConnected) return;
     this.#showInspection(null, false, this.#stateReason);
@@ -712,7 +844,7 @@ export class HierarchyElement<
       before.end !== after.end ||
       before.scrollOffset !== after.scrollOffset
     ) {
-      this.#runtime?.paint();
+      this.#runtime?.paint(undefined, 'viewport');
       this.#emit('scope-viewport-change', { ...after });
       this.#stateChanged();
     }
@@ -747,33 +879,32 @@ export class HierarchyElement<
   ) {
     const batch = this.#notifications.capture();
     const { target: active, pinned } = batch.state.inspect;
-    const tooltip = this.#el('.tooltip');
-    this.#el('.inspect').toggleAttribute('data-active', pinned);
+    const tooltip = this.#dom.tooltip;
+    this.#dom.inspect.toggleAttribute('data-active', pinned);
     const id = active?.sources[0]?.id,
       children = id && this.#compiled?.hierarchy.children.get(id);
-    this.#el<HTMLButtonElement>('.collapse').disabled =
-      !children?.length || this.#view?.document.options?.interactive === false;
-    this.#el('.collapse').textContent = id && this.#collapsed.has(id) ? 'Expand' : 'Collapse';
+    this.#dom.collapse.disabled = !children?.length || this.#view?.interactive === false;
+    this.#dom.collapse.textContent = id && this.#collapsed.has(id) ? 'Expand' : 'Collapse';
     if (children?.length)
-      this.#el('.collapse').setAttribute('aria-expanded', String(!this.#collapsed.has(id!)));
-    else this.#el('.collapse').removeAttribute('aria-expanded');
+      this.#dom.collapse.setAttribute('aria-expanded', String(!this.#collapsed.has(id!)));
+    else this.#dom.collapse.removeAttribute('aria-expanded');
     this.#notifyControls();
     if (batch.current('inspect')) {
       if (!active) {
         hideInspection(tooltip);
-        this.#el('.live').textContent = '';
+        this.#dom.live.textContent = '';
       } else if ((pinned ? this.#ui.inspector : this.#ui.tooltip) === false) {
         hideInspection(tooltip);
-        this.#el('.live').textContent = inspectionText(active);
+        this.#dom.live.textContent = inspectionText(active);
       } else {
         dockInspection(tooltip, pinned);
         renderInspection(tooltip, active, pinned, () => {
           this.#clearInspection();
-          this.#el('.canvas').focus({ preventScroll: true });
+          this.#dom.canvas.focus({ preventScroll: true });
         });
         this.#placeTooltip(position);
         const reading = inspectionText(active);
-        if (this.#el('.live').textContent !== reading) this.#el('.live').textContent = reading;
+        if (this.#dom.live.textContent !== reading) this.#dom.live.textContent = reading;
       }
     }
     if (!this.#stateTransaction) {
@@ -788,27 +919,21 @@ export class HierarchyElement<
   }
   #placeTooltip(position: Position | null = null) {
     const active = this.#runtime?.session.active;
-    if (!active || this.#el('.tooltip').hidden) return;
-    const tooltip = this.#el('.tooltip');
+    if (!active || this.#dom.tooltip.hidden) return;
+    const tooltip = this.#dom.tooltip;
     // Persistent details belong to this component's flow, never guessed free viewport space.
     if (this.#runtime?.session.pinned) return;
-    const bounds = this.#el('.canvas').getBoundingClientRect();
-    const anchor = position ?? this.#runtime?.anchor(active) ?? { x: bounds.width / 2, y: 24 };
+    const bounds = this.#dom.canvas.getBoundingClientRect();
+    const anchor = position ??
+      this.#runtime?.anchor(active) ?? {
+        x: bounds.width / 2,
+        y: hierarchyPadding(this.#ui.axes ?? 'full').top
+      };
     positionInspection(tooltip, { x: bounds.left + anchor.x, y: bounds.top + anchor.y });
   }
-  #table() {
-    const raw = this.#el('.raw'),
-      sources = this.#compiled?.hierarchy.sources ?? [];
-    if (this.#ui.dataTable === false) {
-      raw.hidden = true;
-      this.#el('.data').setAttribute('aria-expanded', 'false');
-      this.#el('.data').textContent = 'View data';
-    }
-    const pages = Math.max(1, Math.ceil(sources.length / 50));
-    this.#page = Math.max(0, Math.min(this.#page, pages - 1));
-    this.#el('.pagination').hidden = raw.hidden || sources.length <= 50;
-    raw.replaceChildren();
-    if (raw.hidden || !this.#compiled) return;
+  #tableModel(): DataTableModel | null {
+    if (!this.#compiled) return null;
+    const sources = this.#compiled.hierarchy.sources;
     const fields = [
       'id',
       'parentId',
@@ -818,48 +943,34 @@ export class HierarchyElement<
         : ['selfWeight', 'file', 'line']),
       'attributes'
     ];
-    const table = node('table'),
-      head = node('thead'),
-      tr = node('tr');
-    table.append(
-      node(
-        'caption',
-        '',
-        `${sources.length} supplied nodes. Original integer strings; absent fields shown as —.`
-      )
+    return {
+      caption: `${sources.length} supplied nodes. Original integer strings; absent fields shown as —.`,
+      headers: fields,
+      total: sources.length,
+      rows: (start, end) =>
+        sources.slice(start, end).map((source) =>
+          fields.map((field) => {
+            const value = (source as unknown as Record<string, unknown>)[field];
+            return {
+              text:
+                value === undefined
+                  ? '—'
+                  : value === null
+                    ? 'null'
+                    : typeof value === 'object'
+                      ? JSON.stringify(value)
+                      : String(value)
+            };
+          })
+        )
+    };
+  }
+  #table() {
+    this.#page = renderDataTable(
+      this.#tableElements,
+      this.#ui.dataTable !== false,
+      this.#page,
+      () => this.#tableModel()
     );
-    for (const field of fields) {
-      const th = node('th', '', field);
-      th.scope = 'col';
-      tr.append(th);
-    }
-    head.append(tr);
-    table.append(head);
-    const body = node('tbody');
-    for (const source of sources.slice(this.#page * 50, (this.#page + 1) * 50)) {
-      const tr = node('tr');
-      for (const field of fields) {
-        const value = (source as unknown as Record<string, unknown>)[field];
-        tr.append(
-          node(
-            'td',
-            '',
-            value === undefined
-              ? '—'
-              : value === null
-                ? 'null'
-                : typeof value === 'object'
-                  ? JSON.stringify(value)
-                  : String(value)
-          )
-        );
-      }
-      body.append(tr);
-    }
-    table.append(body);
-    raw.append(table);
-    this.#el('.pagination span').textContent = `Page ${this.#page + 1} of ${pages}`;
-    this.#el<HTMLButtonElement>('.previous').disabled = this.#page === 0;
-    this.#el<HTMLButtonElement>('.next').disabled = this.#page === pages - 1;
   }
 }

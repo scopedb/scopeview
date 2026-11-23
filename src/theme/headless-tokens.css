@@ -8,8 +8,6 @@
   --color-text-brand: light-dark(#0876dd, #77b4f1);
   --color-text-danger: light-dark(#b91c1c, #fa8796);
   --color-surface: light-dark(#ffffff, #1a2029);
-  --color-surface-hover: light-dark(rgba(0, 0, 0, 0.045), #2a3441);
-  --color-surface-pressed: light-dark(rgba(0, 0, 0, 0.075), #374252);
   --color-border: light-dark(rgba(0, 0, 0, 0.12), #465362);
   --color-border-light: light-dark(rgba(0, 0, 0, 0.06), #333d4b);
   --color-chart-series-1: light-dark(#418be6, #4993ee);
@@ -29,12 +27,13 @@
   --scope-chart-space-reading: 10px;
   --scope-chart-space-panel: 12px;
   --scope-chart-space-section: 16px;
+  --scope-chart-font-size-body: calc(13px * var(--scope-chart-font-scale));
+  --scope-chart-font-size-control: calc(12px * var(--scope-chart-font-scale));
   --scope-chart-font-size-caption: calc(11px * var(--scope-chart-font-scale));
   --scope-chart-font-size-context: calc(10px * var(--scope-chart-font-scale));
   --scope-chart-font-size-center: calc(20px * var(--scope-chart-font-scale));
   --scope-chart-font-scale: 1;
   --color-chart-axis: color-mix(in srgb, var(--color-text-primary) 22%, transparent);
-  --color-chart-guide: var(--color-chart-inspection-guide);
   --color-chart-label: color-mix(in srgb, var(--color-text-primary) 62%, var(--color-surface));
   --color-chart-grid: var(--color-border-light);
   --color-chart-baseline: var(--color-chart-axis);
@@ -49,7 +48,9 @@
   );
   --scope-chart-focus-width: 2px;
   --radius-chart-inspector: 6px;
-  --shadow-tooltip: 0 4px 16px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%);
+  --shadow-tooltip:
+    0 4px 16px light-dark(rgb(0 0 0 / 8%), rgb(0 0 0 / 42%)),
+    0 1px 3px light-dark(rgb(0 0 0 / 5%), rgb(0 0 0 / 28%));
   --scope-chart-tooltip-min-width: 176px;
   --scope-chart-tooltip-sample-min-width: 128px;
   --scope-chart-tooltip-max-width: 320px;

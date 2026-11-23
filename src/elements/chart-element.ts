@@ -38,18 +38,23 @@ import {
   positionInspection,
   dockInspection
 } from '../ui/inspection.js';
+import { bindInspectionDismiss } from '../ui/inspection-floating.js';
 import { node } from '../ui/dom.js';
+import { inspectionDirection } from '../runtime/keyboard.js';
 import {
   upgradeProperties,
-  documentMutated,
+  observeDocumentScript,
   ElementTheme,
   watchColorScheme,
   type ScopeTheme
 } from './lifecycle.js';
 import {
-  parseComponentOptions,
-  type MetricComponentOptions
-} from '../families/component-options.js';
+  renderDataTable,
+  setDataTableOpen,
+  type DataTableElements,
+  type DataTableModel
+} from './data-table.js';
+import { parseComponentOptions, type MetricComponentOptions } from './options.js';
 import {
   metricControls,
   readControls,
@@ -98,9 +103,7 @@ export class ScopeChartElement extends HTMLElement {
   get #options() {
     return {
       ...this.#ui,
-      interactive:
-        this.#compiled?.document.options?.interactive ??
-        this.#compiled?.document.options?.presentation !== 'sparkline'
+      interactive: this.#compiled?.interactive
     };
   }
   #error: string | null = null;
@@ -130,7 +133,31 @@ export class ScopeChartElement extends HTMLElement {
   #cursorTimeMs: number | null = null;
   #readingNeighbors: string[] = [];
   #selectedNeighbors: string[] = [];
+  #updating = false;
   #root: ShadowRoot;
+  #dom: {
+    root: HTMLElement;
+    header: HTMLElement;
+    title: HTMLElement;
+    description: HTMLElement;
+    viewport: HTMLElement;
+    canvas: HTMLElement;
+    decoration: HTMLElement;
+    metrics: HTMLElement;
+    status: HTMLElement;
+    legend: HTMLElement;
+    toolbarSlot: HTMLSlotElement;
+    inspect: HTMLButtonElement;
+    data: HTMLButtonElement;
+    restore: HTMLButtonElement;
+    tooltip: HTMLElement;
+    raw: HTMLElement;
+    pagination: HTMLElement;
+    paginationLabel: HTMLElement;
+    previous: HTMLButtonElement;
+    next: HTMLButtonElement;
+    live: HTMLElement;
+  };
   #appearance = new ElementTheme(this);
   #controlEvents = new ControlEvents();
   constructor() {
@@ -152,9 +179,41 @@ export class ScopeChartElement extends HTMLElement {
       <p class="sr-only" id="help">Arrows inspect, Home/End jump, Enter/Space select, Escape dismisses. Hover to compare; Lock fixes the reading. Shift-click a legend item to isolate it. View data shows original values.</p>
       <span class="sr-only live" role="status" aria-live="polite" aria-atomic="true"></span>`;
     this.#root.append(shell);
+    const q = <T extends HTMLElement = HTMLElement>(selector: string) =>
+      this.#root.querySelector<T>(selector)!;
+    this.#dom = {
+      root: shell,
+      header: q('header'),
+      title: q('h2'),
+      description: q('.description'),
+      viewport: q('.viewport'),
+      canvas: q('.canvas'),
+      decoration: q('.decoration'),
+      metrics: q('.metrics'),
+      status: q('.status'),
+      legend: q('.legend'),
+      toolbarSlot: q<HTMLSlotElement>('slot[name="toolbar"]'),
+      inspect: q<HTMLButtonElement>('.inspect'),
+      data: q<HTMLButtonElement>('.data'),
+      restore: q<HTMLButtonElement>('.restore'),
+      tooltip: q('.tooltip'),
+      raw: q('.raw'),
+      pagination: q('.pagination'),
+      paginationLabel: q('.pagination span'),
+      previous: q<HTMLButtonElement>('.previous'),
+      next: q<HTMLButtonElement>('.next'),
+      live: q('.live')
+    };
   }
-  #el<T extends HTMLElement = HTMLElement>(selector: string) {
-    return this.#root.querySelector<T>(selector)!;
+  get #tableElements(): DataTableElements {
+    return {
+      raw: this.#dom.raw,
+      toggle: this.#dom.data,
+      pagination: this.#dom.pagination,
+      pageLabel: this.#dom.paginationLabel,
+      previous: this.#dom.previous,
+      next: this.#dom.next
+    };
   }
   get document(): ChartDocument | null {
     return this.#compiled ? structuredClone(this.#compiled.document) : null;
@@ -272,6 +331,7 @@ export class ScopeChartElement extends HTMLElement {
   }
   set theme(value: ScopeTheme) {
     this.#appearance.value = value;
+    this.#repaint();
   }
   addEventListener<K extends keyof ScopeChartEventMap>(
     type: K,
@@ -319,14 +379,19 @@ export class ScopeChartElement extends HTMLElement {
     )
       return false;
     if (action === 'inspect') {
-      if (!this.#session.active) this.#step('Home');
+      if (!this.#session.active) {
+        const value = this.#session.next('Home');
+        if (value) this.#inspect(value, null, false, true);
+      }
       inspectionFocus(this.#root).focus({ preventScroll: true });
     } else if (action === 'toggle-data') {
-      const raw = this.#el('.raw');
-      raw.hidden = !raw.hidden;
-      this.#el('.data').setAttribute('aria-expanded', String(!raw.hidden));
-      this.#el('.data').textContent = raw.hidden ? 'View data' : 'Hide data';
-      this.#table();
+      this.#page = setDataTableOpen(
+        this.#tableElements,
+        this.#dom.raw.hidden,
+        this.#ui.dataTable !== false,
+        this.#page,
+        () => this.#tableModel()
+      );
     } else if (action === 'show-all') {
       this.#session.showAll();
       this.#visibility();
@@ -350,22 +415,23 @@ export class ScopeChartElement extends HTMLElement {
     this.#events?.abort();
     this.#events = new AbortController();
     const signal = this.#events.signal;
-    watchColorScheme(() => this.refresh(), signal);
-    for (const [action, selector] of Object.entries(metricControls))
-      this.#el(selector).addEventListener(
-        'click',
-        () => this.performAction(action as ScopeChartAction),
-        { signal }
-      );
-    this.#el('slot[name="toolbar"]').addEventListener('slotchange', () => this.refresh(), {
-      signal
-    });
-    this.#el('.viewport').addEventListener(
+    watchColorScheme(() => this.#repaint(), signal);
+    const controlButtons = {
+      inspect: this.#dom.inspect,
+      'toggle-data': this.#dom.data,
+      'show-all': this.#dom.restore
+    } as const;
+    for (const [action, button] of Object.entries(controlButtons))
+      button.addEventListener('click', () => this.performAction(action as ScopeChartAction), {
+        signal
+      });
+    this.#dom.toolbarSlot.addEventListener('slotchange', () => this.refresh(), { signal });
+    this.#dom.viewport.addEventListener(
       'keydown',
       (event) => this.#keyboard(event as KeyboardEvent),
       { signal }
     );
-    this.#el('.inspect').addEventListener(
+    this.#dom.inspect.addEventListener(
       'keydown',
       (event) => this.#keyboard(event as KeyboardEvent),
       { signal }
@@ -381,7 +447,7 @@ export class ScopeChartElement extends HTMLElement {
       },
       { signal }
     );
-    this.#el('.previous').addEventListener(
+    this.#dom.previous.addEventListener(
       'click',
       () => {
         this.#page--;
@@ -389,7 +455,7 @@ export class ScopeChartElement extends HTMLElement {
       },
       { signal }
     );
-    this.#el('.next').addEventListener(
+    this.#dom.next.addEventListener(
       'click',
       () => {
         this.#page++;
@@ -397,26 +463,29 @@ export class ScopeChartElement extends HTMLElement {
       },
       { signal }
     );
-    const outside = (event: Event) => {
-      if (this.#ui.dismissOnOutside !== false && !event.composedPath().includes(this))
-        this.#clearInspection();
-    };
-    document.addEventListener('pointerdown', outside, { signal });
-    document.addEventListener('focusin', outside, { signal });
-    window.addEventListener(
-      'scroll',
-      (event) => {
-        if (event.composedPath().includes(this.#el('.tooltip'))) return;
-        if (this.#session.pinned || this.#session.keyboardInspection) this.#placeTooltip();
-        else this.#clearInspection();
+    bindInspectionDismiss(
+      this,
+      this.#dom.tooltip,
+      () => this.#session.pinned || this.#session.keyboardInspection,
+      (outside) => {
+        if (!outside || this.#ui.dismissOnOutside !== false) this.#clearInspection();
       },
-      { capture: true, signal }
+      () => this.#placeTooltip(),
+      signal
     );
-    this.#mutation = new MutationObserver((records) => {
-      if (!this.#propertySet && documentMutated(records)) this.#readJSON();
-    });
-    this.#mutation.observe(this, { childList: true, subtree: true, characterData: true });
-    if (!this.#propertySet) this.#readJSON();
+    this.#mutation = observeDocumentScript(
+      this,
+      () => !this.#propertySet,
+      (value) => {
+        this.document = value;
+        this.#propertySet = false;
+      },
+      (message) => {
+        this.document = undefined;
+        this.#error = message;
+        this.#propertySet = false;
+      }
+    );
     this.refresh();
   }
   disconnectedCallback() {
@@ -428,8 +497,17 @@ export class ScopeChartElement extends HTMLElement {
     this.#clearInspection();
     this.#dispose();
   }
-  attributeChangedCallback() {
-    this.refresh();
+  attributeChangedCallback(name: string) {
+    if (!this.isConnected) return;
+    if (name === 'loading' || name === 'error') this.refresh();
+    else this.#repaint();
+  }
+  #repaint() {
+    if (!this.isConnected) return;
+    if (this.#plot?.model && !this.loading && !(this.getAttribute('error') ?? this.#error)) {
+      if (this.#plot.refresh) this.#plot.refresh('paint');
+      else this.refresh();
+    } else if (!this.hasAttribute('data-state')) this.refresh();
   }
   /** Repaint after inherited design tokens or font availability changes. */
   refresh() {
@@ -439,19 +517,6 @@ export class ScopeChartElement extends HTMLElement {
       this.#frame = 0;
       void this.#render(this.#revision);
     });
-  }
-  #readJSON() {
-    const script = this.querySelector<HTMLScriptElement>(
-      ':scope > script[type="application/json"]'
-    );
-    if (!script) return;
-    try {
-      this.document = JSON.parse(script.textContent ?? '');
-    } catch {
-      this.document = undefined;
-      this.#error = 'Invalid JSON. Check the chart document syntax.';
-    }
-    this.#propertySet = false;
   }
   #emit<K extends keyof ScopeChartEventDetails>(name: K, detail: ScopeChartEventDetails[K]) {
     this.#notifyControls();
@@ -476,8 +541,8 @@ export class ScopeChartElement extends HTMLElement {
   }
   #status(state: string, message: string | null) {
     this.setAttribute('data-state', state);
-    this.#el('.viewport').setAttribute('aria-busy', String(state === 'loading'));
-    const status = this.#el('.status');
+    this.#dom.viewport.setAttribute('aria-busy', String(state === 'loading'));
+    const status = this.#dom.status;
     status.hidden = message === null;
     status.className = `status ${state}`;
     status.textContent = message;
@@ -493,36 +558,42 @@ export class ScopeChartElement extends HTMLElement {
   /** Load the browser renderer only when a plotted chart is needed. */
   protected async renderer() {
     const { Plot } = await import('./plot.js');
-    return (canvas: HTMLElement, decoration: HTMLElement, inspect: Inspect): ChartRenderer =>
-      new Plot(canvas, decoration, inspect, () => this.refresh());
+    return (
+      canvas: HTMLElement,
+      decoration: HTMLElement,
+      inspect: Inspect,
+      session?: ChartSession,
+      onRender?: () => void
+    ): ChartRenderer =>
+      new Plot(canvas, decoration, inspect, () => this.refresh(), session, onRender);
   }
   async #render(revision: number) {
     const compiled = this.#compiled;
     const miniature = compiled?.document.options?.presentation === 'sparkline';
-    const interactive = compiled?.document.options?.interactive ?? !miniature;
+    const interactive = compiled?.interactive ?? !miniature;
     renderToolbar(this.#root, this.#options, metricControls, !interactive);
-    this.#el('.root').setAttribute('aria-hidden', String(!interactive));
-    this.#el('.viewport').tabIndex =
-      interactive && inspectionFocus(this.#root) === this.#el('.viewport') && !this.#rangeSelection
+    this.#dom.root.setAttribute('aria-hidden', String(!interactive));
+    this.#dom.viewport.tabIndex =
+      interactive && inspectionFocus(this.#root) === this.#dom.viewport && !this.#rangeSelection
         ? 0
         : -1;
-    this.#el('.canvas').style.pointerEvents = interactive ? '' : 'none';
+    this.#dom.canvas.style.pointerEvents = interactive ? '' : 'none';
     const title = compiled?.document.title ?? '',
       description = compiled?.document.description ?? '';
-    this.#el('header').hidden = miniature || this.#ui.header === false || (!title && !description);
-    this.#el('h2').textContent = title;
-    this.#el('h2').hidden = !title;
-    this.#el('.description').textContent = description;
-    this.#el('.description').hidden = !description;
-    this.#el<HTMLButtonElement>('.data').disabled = !compiled || this.#ui.dataTable === false;
-    this.#el('.metrics').hidden = true;
+    this.#dom.header.hidden = miniature || this.#ui.header === false || (!title && !description);
+    this.#dom.title.textContent = title;
+    this.#dom.title.hidden = !title;
+    this.#dom.description.textContent = description;
+    this.#dom.description.hidden = !description;
+    this.#dom.data.disabled = !compiled || this.#ui.dataTable === false;
+    this.#dom.metrics.hidden = true;
     const error = this.getAttribute('error') ?? this.#error;
     const knownTimeFrame =
       compiled?.axisModel?.kind === 'time-series' && !!compiled.axisModel.window;
     if (error || this.loading || !compiled || (!compiled.series.length && !knownTimeFrame)) {
       const saved = this.loading && compiled && !error ? this.viewState : null;
       if (saved) this.#stateTransaction = true;
-      this.#el<HTMLButtonElement>('.inspect').disabled = true;
+      this.#dom.inspect.disabled = true;
       this.#clearInspection();
       this.#dispose();
       if (saved) this.#applyState(saved);
@@ -544,10 +615,10 @@ export class ScopeChartElement extends HTMLElement {
     }
     try {
       if (compiled.config.mapping.kind === 'aggregate') {
-        this.#el<HTMLButtonElement>('.inspect').disabled = true;
+        this.#dom.inspect.disabled = true;
         this.#clearInspection(this.#stateReason);
         this.#dispose();
-        const metrics = this.#el('.metrics');
+        const metrics = this.#dom.metrics;
         metrics.replaceChildren();
         metrics.hidden = false;
         for (const value of prepareAggregateValues(compiled.dataset, compiled.config.mapping)) {
@@ -573,15 +644,24 @@ export class ScopeChartElement extends HTMLElement {
           const create = await this.renderer();
           if (revision !== this.#revision || !this.isConnected) return;
           this.#plot = create(
-            this.#el('.canvas'),
-            this.#el('.decoration'),
+            this.#dom.canvas,
+            this.#dom.decoration,
             (value, position, pin, series, neighbors) =>
-              this.#inspect(value, position, pin, false, series, neighbors)
+              this.#inspect(value, position, pin, false, series, neighbors),
+            this.#session,
+            () => {
+              if (!this.#updating && this.#session.active) this.#placeTooltip();
+            }
           );
         }
-        this.#plot.update(compiled, this.#session.hidden, this.#ui.axes ?? 'full');
-        this.#renderedCompiled = compiled;
         this.#plot.linkedHighlight = this.#linkedHighlight;
+        this.#updating = true;
+        try {
+          this.#plot.update(compiled, this.#session.hidden, this.#ui.axes ?? 'full');
+        } finally {
+          this.#updating = false;
+        }
+        this.#renderedCompiled = compiled;
         this.#plot.rangeSelection = this.#rangeSelection;
         this.#session.setModel(this.#plot.model);
         if (this.#pendingPin !== undefined) {
@@ -592,15 +672,14 @@ export class ScopeChartElement extends HTMLElement {
           this.#showInspection(null);
         } else {
           this.#plot.focus(null);
-          hideInspection(this.#el('.tooltip'));
-          this.#el('.inspect').removeAttribute('data-active');
+          hideInspection(this.#dom.tooltip);
+          this.#dom.inspect.removeAttribute('data-active');
         }
-        this.#el('.viewport').setAttribute(
+        this.#dom.viewport.setAttribute(
           'aria-label',
           title || this.#plot.model?.ariaLabel || 'ScopeDB chart'
         );
-        this.#el<HTMLButtonElement>('.inspect').disabled =
-          !interactive || !this.#plot.model?.interactions.length;
+        this.#dom.inspect.disabled = !interactive || !this.#plot.model?.interactions.length;
       }
       const batch = this.#notifications.capture();
       this.#status('ready', null);
@@ -613,7 +692,7 @@ export class ScopeChartElement extends HTMLElement {
         rows: compiled.dataset.rows.length
       });
     } catch (error) {
-      this.#el<HTMLButtonElement>('.inspect').disabled = true;
+      this.#dom.inspect.disabled = true;
       this.#clearInspection();
       this.#dispose();
       const message = error instanceof Error ? error.message : 'Chart rendering failed.';
@@ -622,7 +701,7 @@ export class ScopeChartElement extends HTMLElement {
     }
   }
   #buildLegend() {
-    const legend = this.#el('.legend');
+    const legend = this.#dom.legend;
     legend.replaceChildren();
     const compiled = this.#compiled;
     const option = this.#ui.legend;
@@ -636,8 +715,7 @@ export class ScopeChartElement extends HTMLElement {
     legend.hidden =
       !compiled ||
       this.#ui.legend === false ||
-      compiled.document.options?.presentation === 'sparkline' ||
-      compiled.document.options?.interactive === false ||
+      this.#options.interactive === false ||
       compiled.series.length < (columns.length ? 1 : 2) ||
       compiled.config.mapping.kind === 'aggregate';
     const readings = compiled ? legendReadings(compiled, columns) : new Map<string, string[]>();
@@ -678,7 +756,7 @@ export class ScopeChartElement extends HTMLElement {
       });
       legend.append(button);
     }
-    this.#el<HTMLButtonElement>('.restore').disabled = true;
+    this.#dom.restore.disabled = true;
   }
   #visibility() {
     this.#legendState();
@@ -688,13 +766,12 @@ export class ScopeChartElement extends HTMLElement {
     this.#stateChanged();
   }
   #legendState() {
-    const buttons = this.#root.querySelectorAll('.legend button');
+    const buttons = this.#dom.legend.querySelectorAll('button');
     const hidden = this.#session.hidden;
     this.#compiled?.series.forEach((series, i) => {
       buttons[i]?.setAttribute('aria-pressed', String(!hidden.has(series.name)));
     });
-    this.#el<HTMLButtonElement>('.restore').disabled =
-      !this.#session.hidden.size || this.#compiled?.document.options?.interactive === false;
+    this.#dom.restore.disabled = !this.#session.hidden.size || this.#options.interactive === false;
     this.#notifyControls();
   }
   #inspectionDetail(
@@ -731,9 +808,9 @@ export class ScopeChartElement extends HTMLElement {
     this.#session.clearInspection();
     const batch = this.#notifications.capture();
     this.#plot?.focus(null);
-    this.#el('.inspect').removeAttribute('data-active');
-    hideInspection(this.#el('.tooltip'));
-    this.#el('.live').textContent = '';
+    this.#dom.inspect.removeAttribute('data-active');
+    hideInspection(this.#dom.tooltip);
+    this.#dom.live.textContent = '';
     this.#reportInspection(batch);
     this.#stateChanged(reason);
   }
@@ -778,11 +855,11 @@ export class ScopeChartElement extends HTMLElement {
       this.#session.series,
       this.#session.selected?.key ?? null
     );
-    this.#el('.inspect').toggleAttribute('data-active', this.#session.selected !== null);
-    const tooltip = this.#el('.tooltip');
+    this.#dom.inspect.toggleAttribute('data-active', this.#session.selected !== null);
+    const tooltip = this.#dom.tooltip;
     if (this.#ui.tooltip === false) {
       hideInspection(tooltip);
-      if (keyboard) this.#el('.live').textContent = inspectionText(value);
+      if (keyboard) this.#dom.live.textContent = inspectionText(value);
       return;
     }
     const neighbors = (
@@ -813,23 +890,23 @@ export class ScopeChartElement extends HTMLElement {
       }
     );
     if (place || keyboard) this.#placeTooltip(position);
-    if (keyboard) this.#el('.live').textContent = inspectionText(value);
+    if (keyboard) this.#dom.live.textContent = inspectionText(value);
   }
   #chooseObservation(key: string, neighbors: readonly ChartInteraction[]) {
     if (key === this.#session.selected?.key) return;
     const target = this.#plot?.model?.interactionByKey.get(key);
     if (!target) return;
     this.#inspect(target, null, true, false, null, neighbors);
-    [...this.#el('.tooltip').querySelectorAll<HTMLButtonElement>('.tooltip-observation')]
+    [...this.#dom.tooltip.querySelectorAll<HTMLButtonElement>('.tooltip-observation')]
       .find((button) => button.dataset.key === key)
       ?.focus({ preventScroll: true });
   }
   #placeTooltip(position: Position | null = null) {
-    if (!this.#session.active || this.#el('.tooltip').hidden) return;
-    const tooltip = this.#el('.tooltip');
+    if (!this.#session.active || this.#dom.tooltip.hidden) return;
+    const tooltip = this.#dom.tooltip;
     if (tooltip.classList.contains('docked')) return;
     const anchor = position ?? this.#plot?.anchor(this.#session.active!) ?? { x: 0, y: 0 };
-    const canvas = this.#el('.canvas').getBoundingClientRect();
+    const canvas = this.#dom.canvas.getBoundingClientRect();
     const rect = this.#plot?.model?.rect;
     positionInspection(
       tooltip,
@@ -844,74 +921,47 @@ export class ScopeChartElement extends HTMLElement {
         : undefined
     );
   }
-  #step(key: string) {
-    const direction =
-      key === 'Home' || key === 'End'
-        ? key
-        : key === 'ArrowRight' || key === 'ArrowDown'
-          ? 'next'
-          : 'previous';
-    const value = this.#session.next(direction);
-    if (value) this.#inspect(value, null, false, true);
-  }
   #keyboard(event: KeyboardEvent) {
     if (event.metaKey || event.ctrlKey || event.altKey || this.#plot?.model?.interactive === false)
       return;
-    if (['ArrowRight', 'ArrowLeft', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) {
-      event.preventDefault();
-      this.#step(event.key);
-    } else if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      if (this.#session.active) this.#inspect(this.#session.active, null, true, true);
-      else this.#step('Home');
-    }
+    const direction = inspectionDirection(event.key);
+    const target = direction
+      ? this.#session.next(direction)
+      : event.key === 'Enter' || event.key === ' '
+        ? (this.#session.active ?? this.#session.next('Home'))
+        : undefined;
+    if (target === undefined) return;
+    event.preventDefault();
+    if (target) this.#inspect(target, null, !direction && this.#session.active !== null, true);
+  }
+  #tableModel(): DataTableModel | null {
+    const data = this.#compiled?.document.data;
+    if (!data) return null;
+    return {
+      caption: `${data.rows.length} ${this.#compiled?.document.semantics?.provenance?.kind === 'bins' ? 'derived bins' : 'returned rows'}. Raw values; NULL is shown explicitly.`,
+      headers: data.fields.map((field) => field.name),
+      total: data.rows.length,
+      rows: (start, end) =>
+        data.rows
+          .slice(start, end)
+          .map((values) =>
+            values.map((value) =>
+              value === null
+                ? { text: 'NULL', ariaLabel: 'SQL NULL' }
+                : value === ''
+                  ? { text: '', ariaLabel: 'Empty string' }
+                  : { text: value }
+            )
+          )
+    };
   }
   #table() {
-    const raw = this.#el('.raw'),
-      data = this.#compiled?.document.data;
-    if (this.#ui.dataTable === false) {
-      raw.hidden = true;
-      this.#el('.data').setAttribute('aria-expanded', 'false');
-      this.#el('.data').textContent = 'View data';
-    }
-    this.#el('.pagination').hidden = raw.hidden || !data || data.rows.length <= 50;
-    raw.replaceChildren();
-    if (raw.hidden || !data) return;
-    const table = node('table'),
-      head = node('thead'),
-      tr = node('tr');
-    const pages = Math.max(1, Math.ceil(data.rows.length / 50));
-    this.#page = Math.min(Math.max(this.#page, 0), pages - 1);
-    table.append(
-      node(
-        'caption',
-        '',
-        `${data.rows.length} ${this.#compiled?.document.semantics?.provenance?.kind === 'bins' ? 'derived bins' : 'returned rows'}. Raw values; NULL is shown explicitly.`
-      )
+    this.#page = renderDataTable(
+      this.#tableElements,
+      this.#ui.dataTable !== false,
+      this.#page,
+      () => this.#tableModel()
     );
-    data.fields.forEach((field) => {
-      const th = node('th', '', field.name);
-      th.scope = 'col';
-      tr.append(th);
-    });
-    head.append(tr);
-    table.append(head);
-    const body = node('tbody');
-    for (const values of data.rows.slice(this.#page * 50, (this.#page + 1) * 50)) {
-      const row = node('tr');
-      for (const value of values) {
-        const cell = node('td', '', value ?? 'NULL');
-        if (value === null) cell.setAttribute('aria-label', 'SQL NULL');
-        else if (value === '') cell.setAttribute('aria-label', 'Empty string');
-        row.append(cell);
-      }
-      body.append(row);
-    }
-    table.append(body);
-    raw.append(table);
-    this.#el('.pagination span').textContent = `Page ${this.#page + 1} of ${pages}`;
-    this.#el<HTMLButtonElement>('.previous').disabled = this.#page === 0;
-    this.#el<HTMLButtonElement>('.next').disabled = this.#page >= pages - 1;
   }
 }
 

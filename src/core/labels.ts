@@ -1,5 +1,6 @@
 import type { ChartInteraction, ChartScene, MeasureText, PlotRect, SceneMark } from './scene.js';
 import { sparseTicks } from './axes.js';
+import { labelSize as tokenLabelSize } from '../theme/visual-tokens.js';
 
 export interface DataLabel {
   text: string;
@@ -24,7 +25,7 @@ export function layoutDataLabels(
     .sort((a, b) => (b.priority ?? 0) - (a.priority ?? 0))
     .slice(0, 128)) {
     const width = measure(label.text),
-      height = (14 * (measure.fontSize ?? 11)) / 11;
+      height = (14 * (measure.fontSize ?? tokenLabelSize)) / tokenLabelSize;
     const box = {
       x: label.align === 'end' ? label.x - width : label.x,
       y: label.y - height / 2,
@@ -94,15 +95,21 @@ export function fitLabel(
 ): string {
   if (width < 0) return '';
   if (measure(text) <= width) return text;
-  const points = graphemes ? [...graphemes.segment(text)].map((part) => part.segment) : [...text];
-  let left = 0,
-    right = points.length;
+  const points = !/[^\x20-\x7e]/.test(text)
+    ? null
+    : graphemes
+      ? [...graphemes.segment(text)].map((part) => part.segment)
+      : [...text];
+  const prefix = (n: number) => `${points ? points.slice(0, n).join('') : text.slice(0, n)}…`;
+  let left = Math.max(0, minimumPrefix),
+    right = (points ?? text).length;
+  if (right < left || (left > 0 && measure(prefix(left)) > width)) return '';
   while (left < right) {
     const middle = Math.ceil((left + right) / 2);
-    if (measure(`${points.slice(0, middle).join('')}…`) <= width) left = middle;
+    if (measure(prefix(middle)) <= width) left = middle;
     else right = middle - 1;
   }
-  return left >= minimumPrefix ? `${points.slice(0, left).join('')}…` : '';
+  return prefix(left);
 }
 
 /** Resolve labels once so renderers cannot disagree about spacing or truncation. */
@@ -124,7 +131,7 @@ export function layoutAxisLabels<Source>(
   return {
     ...scene,
     xTicks,
-    yTicks: (measure.fontSize && measure.fontSize > 11
+    yTicks: (measure.fontSize && measure.fontSize > tokenLabelSize
       ? sparseTicks(
           scene.yTicks,
           Math.max(2, Math.floor(r.height / (measure.fontSize + 4))),

@@ -3,6 +3,7 @@ import { categoryContext } from './categories.js';
 import { fitLabel } from '../../core/labels.js';
 import { formatQuantity } from '../../data/semantics.js';
 import { linear } from './scale.js';
+import { labelSize as tokenLabelSize } from '../../theme/visual-tokens.js';
 
 export const layoutTopList: MetricLayout = (
   compiled,
@@ -12,26 +13,38 @@ export const layoutTopList: MetricLayout = (
   measure,
   axes = 'full'
 ) => {
-  const { model } = layoutContext(compiled, hidden, width, height, measure, axes);
+  const { model, miniature } = layoutContext(compiled, hidden, width, height, measure, axes);
   const { items, staticView, display, bounds, makeInteraction } = categoryContext(
     compiled,
     model,
-    hidden
+    hidden,
+    miniature
   );
   model.emphasis = 'row';
   const labelWidth = staticView ? 0 : Math.min(width * 0.3, 160);
-  const valueWidth = staticView
-    ? 0
-    : Math.min(
-        width * 0.28,
-        Math.max(50, ...items.map((item) => measure(formatQuantity(item.raw, display))))
-      );
+  const formatted = staticView ? null : items.map((item) => formatQuantity(item.raw, display));
+  let maxValueWidth = 50,
+    max = 0,
+    min = 0;
+  for (let i = 0; i < items.length; i++) {
+    const value = items[i].value;
+    if (value !== null) {
+      if (value > max) max = value;
+      if (value < min) min = value;
+    }
+    if (formatted) {
+      const measured = measure(formatted[i]);
+      if (measured > maxValueWidth) maxValueWidth = measured;
+    }
+  }
+  const valueWidth = staticView ? 0 : Math.min(width * 0.28, maxValueWidth);
   const left = bounds.x + labelWidth,
     right = Math.max(left + 1, width - valueWidth - 16);
-  const max = Math.max(0, ...items.map((item) => item.value ?? 0)),
-    min = Math.min(0, ...items.map((item) => item.value ?? 0));
   const x = linear([min, max || (min ? 0 : 1)], [left, right]);
   const rowHeight = bounds.height / Math.max(1, items.length);
+  const showText =
+    !staticView &&
+    (!(measure.fontSize && measure.fontSize > tokenLabelSize) || rowHeight >= measure.fontSize + 4);
   for (const [i, item] of items.entries()) {
     const y = bounds.y + i * rowHeight,
       middle = y + rowHeight / 2;
@@ -55,10 +68,7 @@ export const layoutTopList: MetricLayout = (
         fill: item.color,
         key: item.key
       });
-    if (
-      !staticView &&
-      (!(measure.fontSize && measure.fontSize > 11) || rowHeight >= measure.fontSize + 4)
-    ) {
+    if (showText) {
       model.marks.push({
         kind: 'text',
         x: bounds.x,
@@ -70,7 +80,7 @@ export const layoutTopList: MetricLayout = (
         kind: 'text',
         x: width - 8,
         y: middle,
-        text: fitLabel(formatQuantity(item.raw, display), valueWidth, measure),
+        text: fitLabel(formatted![i], valueWidth, measure),
         align: 'end',
         fill: 'var(--color-text-primary)'
       });

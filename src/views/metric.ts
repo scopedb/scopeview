@@ -1,6 +1,8 @@
 import { parseViewOptions } from './options.js';
 import type { CompiledChart } from '../families/metrics/document.js';
+import { chartColumn } from '../families/metrics/dataset.js';
 import type { MetricLayout } from '../families/metrics/layout-common.js';
+import { prepareAggregateValues } from '../families/metrics/prepared.js';
 import type { ResultRow } from '../data/result.js';
 import type { MetricInspectionContext } from '../core/inspection-context.js';
 import { scalarView, type ScalarValue } from './scalar.js';
@@ -17,41 +19,40 @@ export function createMetric(
   compile: (document: unknown) => CompiledChart,
   options: ViewOptions<ResultRow, MetricInspectionContext> = {}
 ) {
-  options = parseViewOptions(options);
+  const parsed = parseViewOptions(options);
   let inner: ChartView;
   let disposed = false;
   let revision = 0;
-  let theme = options.theme ?? 'light';
+  let theme = parsed.theme ?? 'light';
   let rendered = compiled;
   const scalarValues = (value: CompiledChart): ScalarValue[] => {
     const mapping = value.config.mapping;
-    if (mapping.kind !== 'aggregate' || !value.document.data.rows.length) return [];
-    return mapping.values.map((id) => {
-      const column = value.dataset.columns.find((column) => column.id === id)!;
-      return {
-        value: value.document.data.rows[0][column.columnIndex],
-        label: column.label,
-        display: value.displays.get(id)
-      };
-    });
+    if (mapping.kind !== 'aggregate') return [];
+    return prepareAggregateValues(value.dataset, mapping).map(({ id, label }) => ({
+      value: value.document.data.rows[0][chartColumn(value.dataset, id)!.columnIndex],
+      label,
+      display: value.displays.get(id)
+    }));
   };
+  const statusMessage = (value: CompiledChart) =>
+    value.document.data.rows.length ? null : 'No data';
   const mount = () => {
     if (compiled.config.mapping.kind === 'aggregate')
       return scalarView(host, scalarValues(compiled), { theme });
-    const view = new View(
+    const view: View<ResultRow, MetricInspectionContext> = new View(
       host,
-      { ...options, theme },
+      { ...parsed, theme },
       tokens,
       (width, height, measure, hidden) => {
         rendered = compiled;
-        return layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal');
+        return layout(compiled, hidden, width, height, measure, parsed.axes);
       },
       {
         snapshot: () => rendered,
         contextFor: (target, series) => metricInspectionContext(rendered, target, series)
       }
     );
-    view.status(compiled.document.data.rows.length ? null : 'No data');
+    view.status(statusMessage(compiled));
     view.changed();
     return view;
   };
@@ -98,7 +99,7 @@ export function createMetric(
       compiled = next;
       if (inner instanceof View) {
         const view = inner;
-        view.status(compiled.document.data.rows.length ? null : 'No data');
+        view.status(statusMessage(compiled));
         if (disposed || current !== revision) return;
         view.changed();
       } else inner.update(scalarValues(compiled));

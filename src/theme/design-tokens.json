@@ -36,6 +36,20 @@
           "light": "#946200",
           "dark": "#e4bd66"
         }
+      },
+      "shadowAmbient": {
+        "type": "color",
+        "value": {
+          "light": "rgb(0 0 0 / 8%)",
+          "dark": "rgb(0 0 0 / 42%)"
+        }
+      },
+      "shadowContact": {
+        "type": "color",
+        "value": {
+          "light": "rgb(0 0 0 / 5%)",
+          "dark": "rgb(0 0 0 / 28%)"
+        }
       }
     },
     "font": {
@@ -484,6 +498,21 @@
         "type": "fontFamily",
         "value": "{foundation.font.mono}",
         "css": "--font-mono"
+      },
+      "weightRegular": {
+        "type": "number",
+        "value": "{foundation.weight.regular}",
+        "css": "--scope-chart-font-weight-regular"
+      },
+      "weightMedium": {
+        "type": "number",
+        "value": "{foundation.weight.medium}",
+        "css": "--scope-chart-font-weight-medium"
+      },
+      "weightStrong": {
+        "type": "number",
+        "value": "{foundation.weight.strong}",
+        "css": "--scope-chart-font-weight-strong"
       }
     },
     "text": {
@@ -791,6 +820,11 @@
       }
     },
     "space": {
+      "hairline": {
+        "type": "dimension",
+        "value": "{foundation.space.1}",
+        "css": "--scope-chart-space-hairline"
+      },
       "micro": {
         "type": "dimension",
         "value": "{foundation.space.2}",
@@ -872,6 +906,16 @@
         "value": "{foundation.size.28}",
         "css": "--scope-chart-font-size-metric",
         "scale": true
+      },
+      "metricMin": {
+        "type": "dimension",
+        "value": "{foundation.size.32}",
+        "css": "--scope-chart-font-size-metric-min"
+      },
+      "metricMax": {
+        "type": "dimension",
+        "value": "{foundation.size.64}",
+        "css": "--scope-chart-font-size-metric-max"
       },
       "center": {
         "type": "dimension",
@@ -1025,6 +1069,21 @@
         "value": "{foundation.radius.control}",
         "css": "--radius-chart-control"
       },
+      "focusRadius": {
+        "type": "dimension",
+        "value": "{foundation.radius.small}",
+        "css": "--radius-chart-small"
+      },
+      "headerPaddingTop": {
+        "type": "dimension",
+        "value": "{foundation.space.18}",
+        "css": "--scope-chart-header-padding-top"
+      },
+      "swatchWidth": {
+        "type": "dimension",
+        "value": "{foundation.space.3}",
+        "css": "--scope-chart-swatch-width"
+      },
       "height": {
         "type": "dimension",
         "value": "28px",
@@ -1064,8 +1123,13 @@
       },
       "shadow": {
         "type": "shadow",
-        "value": "0 4px 16px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%)",
+        "value": "0 4px 16px {foundation.color.shadowAmbient}, 0 1px 3px {foundation.color.shadowContact}",
         "css": "--shadow-tooltip"
+      },
+      "badgePaddingX": {
+        "type": "dimension",
+        "value": "{foundation.space.5}",
+        "css": "--scope-chart-tooltip-badge-padding-x"
       },
       "minWidth": {
         "type": "dimension",
@@ -1110,6 +1174,7 @@
       "viewportInset": {
         "type": "dimension",
         "value": "{foundation.space.8}",
+        "css": "--scope-chart-tooltip-inset",
         "runtime": "tooltipInset"
       },
       "pointerOffsetY": {

@@ -1,12 +1,31 @@
 /** Resolved sRGB paint, composited onto the host surface for readable Canvas ink. */
 function channels(color: string): number[] | null {
-  const rgb = /^rgba?\(([^)]+)\)$/.exec(color);
-  if (!rgb) return null;
-  const values = rgb[1].split(/[\s,/]+/).map(Number);
-  return values.length >= 3 && values.every(Number.isFinite) ? values : null;
+  const match = /^(rgba?\(|color\(\s*srgb\s+)([^)]+)\)$/.exec(color.toLowerCase());
+  if (!match) return null;
+  const srgb = match[1][0] === 'c';
+  const [head, alpha, extra] = match[2].split('/');
+  const comma = !srgb && head.includes(',');
+  if (comma && alpha !== undefined) return null;
+  const parts = (comma ? head.split(',') : head.trim().split(/\s+/)).map((t) => t.trim());
+  if (
+    extra !== undefined ||
+    parts.length < 3 ||
+    parts.length > (alpha === undefined && comma ? 4 : 3)
+  )
+    return null;
+  if (alpha !== undefined) parts.push(alpha.trim());
+  const values = parts.map((t, i) => {
+    if (!t || (i === 3 && /\s/.test(t))) return NaN;
+    if (t === 'none' && !comma) return 0;
+    const pct = t.endsWith('%');
+    const n = (pct ? Number(t.slice(0, -1)) / 100 : Number(t)) * (i < 3 && (pct || srgb) ? 255 : 1);
+    return i < 3 ? Math.max(0, Math.min(255, n)) : Math.max(0, Math.min(1, n));
+  });
+  return values.every(Number.isFinite) ? values : null;
 }
+const srgb = (c: number[]) => c.slice(0, 3).map((v) => linear(v / 255));
 const luminance = (color: number[]) => {
-  const [r, g, b] = color.map((value) => linear(value / 255));
+  const [r, g, b] = srgb(color);
   return r * 0.2126 + g * 0.7152 + b * 0.0722;
 };
 const composite = (paint: number[], base: number[]) => {
@@ -54,7 +73,7 @@ const encoded = (channel: number) =>
 /** Oklab matrices published by Björn Ottosson (public domain).
  * https://bottosson.github.io/posts/oklab/#converting-from-linear-srgb-to-oklab */
 function lab(paint: number[]) {
-  const [r, g, b] = paint.slice(0, 3).map((channel) => linear(channel / 255));
+  const [r, g, b] = srgb(paint);
   const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b),
     m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b),
     s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b);

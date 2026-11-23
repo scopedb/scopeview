@@ -110,9 +110,12 @@ export const layoutAxis: MetricLayout = (
         .sort((a, b) => a.index - b.index)
     };
   });
-  const extents = seriesData.flatMap((s) =>
-    s.points.flatMap((p) => (p ? [p.top, ...(stacked ? [p.base] : [])] : []))
-  );
+  const extents: number[] = [];
+  for (const s of seriesData)
+    for (const p of s.points) {
+      extents.push(p.top);
+      if (stacked) extents.push(p.base);
+    }
   const yAxis = numericAxis(extents, height < 240 ? 3 : 5, displayType !== 'line');
   if (report) {
     const units = new Set(mapping.y.map((id) => compiled.displays.get(id)?.unit));
@@ -153,23 +156,27 @@ export const layoutAxis: MetricLayout = (
     return (left + right) / 2;
   };
   const centers = positions.map(centerX);
-  const gap =
-    centers.length < 2 ? r.width : Math.min(...centers.slice(1).map((v, i) => v - centers[i]));
+  let gap = r.width;
+  if (centers.length >= 2) {
+    gap = Infinity;
+    for (let i = 1; i < centers.length; i++) {
+      const delta = centers[i] - centers[i - 1];
+      if (delta < gap) gap = delta;
+    }
+  }
   const columnWidth = Math.min(48, gap * 0.72);
   const columnAt = (p: number | string) => {
-    const edges = bucket ? bucketEdges(p) : null;
-    return {
-      center: centerX(p),
-      width: edges ? Math.max(0, edges[1] - edges[0]) * 0.72 : columnWidth
-    };
+    if (!bucket) return { center: x(p), width: columnWidth };
+    const [left, right] = bucketEdges(p);
+    return { center: (left + right) / 2, width: Math.max(0, right - left) * 0.72 };
   };
   const groupedBars = displayType === 'bar' && !stacked;
   model.hitMode = displayType === 'bar' ? 'bar' : 'axis';
   model.baseline = Math.max(r.y, Math.min(r.y + r.height, y(0)));
   model.yTicks = yTicks(yAxis, y);
   if (temporal) {
-    const { start, end } = semantic.window ?? semantic.domain;
-    const span = end - start;
+    const [start, end] = domain,
+      span = end - start;
     const ticks =
       start === end
         ? [start]
@@ -188,6 +195,11 @@ export const layoutAxis: MetricLayout = (
   }
   if (full) model.yTitle = mapping.y.map((id) => chartColumnLabel(dataset, id)).join(', ');
 
+  const columnByLabel = new Map(dataset.columns.map((c) => [c.label, c]));
+  const cellText = (row: Datum) => {
+    const column = columnByLabel.get(row.metric)!;
+    return formatQuantity(row.source[column.columnIndex], compiled.displays.get(column.id));
+  };
   const atPosition = positions.map(
     () => [] as { row: Datum; point: SceneInteraction['points'][number] }[]
   );
@@ -272,10 +284,12 @@ export const layoutAxis: MetricLayout = (
       if (displayType === 'bar') {
         // A real zero retains an inspection target but has no fabricated painted height.
         if (p.row.y !== 0) {
-          const height = Math.max(1, Math.abs(base - top));
+          const height = Math.max(1, Math.abs(base - top)),
+            bx = center - barWidth / 2,
+            by = p.row.y > 0 ? base - height : base;
           barsAtPosition[p.index].push({
-            x: center - barWidth / 2,
-            y: p.row.y > 0 ? base - height : base,
+            x: bx,
+            y: by,
             width: barWidth,
             height,
             color: fill,
@@ -284,8 +298,8 @@ export const layoutAxis: MetricLayout = (
           model.marks.push({
             kind: 'rect',
             key: `${temporal ? 'time' : 'category'}:${p.position}`,
-            x: center - barWidth / 2,
-            y: p.row.y > 0 ? base - height : base,
+            x: bx,
+            y: by,
             width: barWidth,
             height,
             fill
@@ -293,11 +307,7 @@ export const layoutAxis: MetricLayout = (
         }
       } else segment.push({ x: center, y: top, base, color: fill });
       if (showLabels && displayType === 'bar' && !stacked && gap >= 36) {
-        const metric = dataset.columns.find((c) => c.label === p.row.metric)!;
-        const text = formatQuantity(
-          p.row.source[metric.columnIndex],
-          compiled.displays.get(metric.id)
-        );
+        const text = cellText(p.row);
         labels.push({
           text,
           x: center - measure(text) / 2,
@@ -309,9 +319,8 @@ export const layoutAxis: MetricLayout = (
     flush();
     if (showLabels && displayType === 'line' && points.at(-1)?.index === positions.length - 1) {
       const last = points.at(-1)!;
-      const metric = dataset.columns.find((c) => c.label === last.row.metric)!;
       labels.push({
-        text: formatQuantity(last.row.source[metric.columnIndex], compiled.displays.get(metric.id)),
+        text: cellText(last.row),
         x: centerX(last.position) + 8,
         y: y(last.top),
         series: series.name,
@@ -321,18 +330,15 @@ export const layoutAxis: MetricLayout = (
   });
   for (let index = 0; index < positions.length; index++) {
     const position = positions[index],
+      pos = Number(position),
       values = atPosition[index];
-    const samples = samplesAtPosition.get(Number(position)) ?? [];
-    const returned = samples.filter((sample) =>
-      visible.some((series) => series.name === sample.series)
-    );
+    const samples = samplesAtPosition.get(pos) ?? [];
+    const returned = samples.filter((sample) => !hidden.has(sample.series));
     if (!values.length && !returned.length) continue;
     const key = `${temporal ? 'time' : 'category'}:${position}`;
-    const start = bucket
-      ? Math.max(Number(position), bucket.window?.start ?? -Infinity)
-      : Number(position);
+    const start = bucket ? Math.max(pos, bucket.window?.start ?? -Infinity) : pos;
     const end = bucket
-      ? Math.min(Number(position) + bucket.intervalMs, bucket.window?.end ?? Infinity)
+      ? Math.min(pos + bucket.intervalMs, bucket.window?.end ?? Infinity)
       : undefined;
     const partial = bucket?.completeThrough !== undefined && end! > bucket.completeThrough;
     const sources = [
@@ -352,6 +358,22 @@ export const layoutAxis: MetricLayout = (
       }
       return readingHeader;
     };
+    let anchorY = displayType === 'bar' || !values.length ? y(0) : Infinity,
+      topY = Infinity,
+      maxPriority = -Infinity;
+    for (const v of values) {
+      if (v.point.y < topY) topY = v.point.y;
+      if (v.row.y > maxPriority) maxPriority = v.row.y;
+    }
+    if (topY < anchorY) anchorY = topY;
+    const band = bucket
+      ? { x: bucketEdges(position)[0], width: bucketEdges(position)[1] - bucketEdges(position)[0] }
+      : displayType === 'bar'
+        ? (() => {
+            const col = columnAt(position);
+            return { x: col.center - col.width / 2, width: col.width };
+          })()
+        : undefined;
     add(
       model,
       {
@@ -370,35 +392,12 @@ export const layoutAxis: MetricLayout = (
             }
           : {}),
         anchor: {
-          x: bucket || displayType === 'bar' ? centerX(position) : x(position),
-          y: Math.min(
-            ...values.map((v) => v.point.y),
-            displayType === 'bar' || !values.length ? y(0) : Infinity
-          )
+          x: bucket || displayType === 'bar' ? centers[index] : x(position),
+          y: anchorY
         },
         points: displayType === 'bar' ? [] : values.map((v) => v.point),
-        ...(bucket && displayType !== 'bar'
-          ? {
-              band: {
-                x: bucketEdges(position)[0],
-                width: bucketEdges(position)[1] - bucketEdges(position)[0]
-              }
-            }
-          : {}),
-        ...(displayType === 'bar'
-          ? {
-              bars: barsAtPosition[index],
-              band: bucket
-                ? {
-                    x: bucketEdges(position)[0],
-                    width: bucketEdges(position)[1] - bucketEdges(position)[0]
-                  }
-                : {
-                    x: columnAt(position).center - columnAt(position).width / 2,
-                    width: columnAt(position).width
-                  }
-            }
-          : {})
+        ...(band ? { band } : {}),
+        ...(displayType === 'bar' ? { bars: barsAtPosition[index] } : {})
       },
       () => ({
         ...header(),
@@ -412,14 +411,7 @@ export const layoutAxis: MetricLayout = (
           return {
             label: series.name,
             format: 'number',
-            value: (() => {
-              if (!v) return sample ? 'NULL' : '—';
-              const column = dataset.columns.find((c) => c.label === v.row.metric)!;
-              return formatQuantity(
-                v.row.source[column.columnIndex],
-                compiled.displays.get(column.id)
-              );
-            })(),
+            value: v ? cellText(v.row) : sample ? 'NULL' : '—',
             color: v?.point.color ?? color(series, position, displayType === 'line')
           };
         }),
@@ -434,7 +426,7 @@ export const layoutAxis: MetricLayout = (
                 format: 'number' as const,
                 value: (() => {
                   const raw = values.map((v) => {
-                    const column = dataset.columns.find((c) => c.label === v.row.metric)!;
+                    const column = columnByLabel.get(v.row.metric)!;
                     return v.row.source[column.columnIndex]!;
                   });
                   const sum = raw.every((v) => /^[+-]?\d+$/.test(v))
@@ -464,8 +456,8 @@ export const layoutAxis: MetricLayout = (
         labels.push({
           text,
           x: interaction.anchor.x - measure(text) / 2,
-          y: Math.min(...values.map((v) => v.point.y)) - 9,
-          priority: Math.max(...values.map((v) => v.row.y))
+          y: topY - 9,
+          priority: maxPriority
         });
     }
   }

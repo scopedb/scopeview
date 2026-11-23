@@ -29,7 +29,7 @@ p {
 }
 h2 {
   font-size: var(--scope-chart-font-size-title);
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
   letter-spacing: -0.01em;
 }
 .description {
@@ -39,7 +39,8 @@ h2 {
   line-height: 1.6;
 }
 header {
-  padding: 18px var(--scope-chart-space-section) var(--scope-chart-space-micro);
+  padding: var(--scope-chart-header-padding-top) var(--scope-chart-space-section)
+    var(--scope-chart-space-micro);
 }
 .viewport {
   position: relative;
@@ -60,7 +61,7 @@ header {
 .viewport:focus-visible {
   outline: var(--scope-chart-focus-width) solid var(--color-text-brand);
   outline-offset: -2px;
-  border-radius: 3px;
+  border-radius: var(--radius-chart-small);
 }
 :host(:is(scope-trace, scope-flame))
   .root:has(.toolbar:not([hidden]) .inspect:not([hidden]))
@@ -133,12 +134,15 @@ header {
 }
 .metric-value {
   font-size: var(--scope-chart-font-size-metric);
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
   letter-spacing: -0.035em;
   font-variant-numeric: tabular-nums;
 }
 .metric:first-child .metric-value {
-  font-size: calc(clamp(32px, 6vw, 64px) * var(--scope-chart-font-scale));
+  font-size: calc(
+    clamp(var(--scope-chart-font-size-metric-min), 12cqi, var(--scope-chart-font-size-metric-max)) *
+    var(--scope-chart-font-scale)
+  );
 }
 .metric-exact {
   font: var(--scope-chart-font-size-caption) / 1.6 var(--font-mono);
@@ -172,7 +176,7 @@ header {
 }
 .center strong {
   font-size: var(--scope-chart-font-size-center);
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
 }
 .center span {
   max-width: 35%;
@@ -227,7 +231,7 @@ button:disabled {
 }
 .swatch {
   display: inline-block;
-  width: 3px;
+  width: var(--scope-chart-swatch-width);
   height: 12px;
   border-radius: 1px;
   flex-shrink: 0;
@@ -348,23 +352,32 @@ button:disabled {
   align-items: center;
   border: 1px solid var(--color-border-light);
   border-radius: var(--radius-chart-control);
-  gap: 1px;
-  padding: 1px;
+  gap: var(--scope-chart-space-hairline);
+  padding: var(--scope-chart-space-hairline);
 }
 .toolbar-group button {
-  min-height: 24px;
+  min-height: max(
+    calc(var(--scope-chart-control-height) - var(--scope-chart-space-small)),
+    calc(
+      (var(--scope-chart-control-height) - var(--scope-chart-space-small)) *
+      var(--scope-chart-font-scale)
+    )
+  );
   padding-top: var(--scope-chart-space-micro);
   padding-bottom: var(--scope-chart-space-micro);
 }
 .toolbar .data,
 .toolbar .collapse {
-  min-width: 72px;
+  min-width: 6em;
 }
 .toolbar .icon-button {
-  width: var(--scope-chart-control-height);
+  min-width: max(
+    var(--scope-chart-control-height),
+    calc(var(--scope-chart-control-height) * var(--scope-chart-font-scale))
+  );
   padding: var(--scope-chart-space-micro);
-  font-size: 17px;
-  line-height: 18px;
+  font-size: calc(17px * var(--scope-chart-font-scale));
+  line-height: calc(var(--scope-chart-header-padding-top) * var(--scope-chart-font-scale));
 }
 .attribution {
   margin-left: auto;
@@ -385,13 +398,13 @@ button:disabled {
   width: var(--scope-chart-tooltip-width, max-content);
   min-width: min(
     var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-min-width)),
-    calc(100vw - 16px)
+    calc(100vw - var(--scope-chart-tooltip-inset) * 2)
   );
   max-width: min(
     var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-max-width)),
-    calc(100vw - 16px)
+    calc(100vw - var(--scope-chart-tooltip-inset) * 2)
   );
-  max-height: calc(100dvh - 16px);
+  max-height: calc(100dvh - var(--scope-chart-tooltip-inset) * 2);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-chart-inspector);
@@ -404,7 +417,7 @@ button:disabled {
   width: var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-entity-width));
   max-width: min(
     var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-entity-width)),
-    calc(100vw - 16px)
+    calc(100vw - var(--scope-chart-tooltip-inset) * 2)
   );
 }
 .tooltip.pinned,
@@ -420,10 +433,9 @@ button:disabled {
   white-space: pre-wrap;
 }
 :host .tooltip.compact {
-  width: var(--scope-chart-tooltip-width, max-content);
   max-width: min(
     var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-compact-width)),
-    calc(100vw - 16px)
+    calc(100vw - var(--scope-chart-tooltip-inset) * 2)
   );
 }
 :host(:is(scope-trace, scope-flame)) .tooltip.compact {
@@ -441,7 +453,7 @@ button:disabled {
   text-overflow: ellipsis;
 }
 .tooltip.compact .tooltip-value {
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
 }
 .tooltip-preview-hint {
   margin: 0 var(--scope-chart-space-reading) var(--scope-chart-space-control);
@@ -457,7 +469,7 @@ button:disabled {
 .tooltip-heading strong {
   flex: 1;
   min-width: 0;
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
   letter-spacing: -0.015em;
 }
 .tooltip .swatch {
@@ -468,9 +480,9 @@ button:disabled {
   line-height: 1.6;
   flex-shrink: 0;
   align-self: flex-start;
-  font-weight: 400;
-  padding: 0 5px;
-  border-radius: 3px;
+  font-weight: var(--scope-chart-font-weight-regular);
+  padding: 0 var(--scope-chart-tooltip-badge-padding-x);
+  border-radius: var(--radius-chart-small);
   background: var(--color-chart-inspection-pinned);
   border: 1px solid var(--color-border);
 }
@@ -489,7 +501,7 @@ button:disabled {
   padding: var(--scope-chart-space-inline) var(--scope-chart-space-reading)
     var(--scope-chart-space-control);
 }
-.tooltip:not(.compact) .tooltip-body {
+.tooltip:not(.compact) :is(.tooltip-heading, .tooltip-context) + .tooltip-body {
   margin-top: var(--scope-chart-space-inline);
   border-top: 1px solid var(--color-border-light);
 }
@@ -515,7 +527,7 @@ button:disabled {
   grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
 }
 .tooltip-row[data-format="number"] .tooltip-value {
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
   letter-spacing: -0.015em;
 }
 .tooltip-row[data-format="code"] .tooltip-value {
@@ -562,11 +574,11 @@ button:disabled {
 .tooltip.sample:not(.docked) {
   min-width: min(
     var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-sample-min-width)),
-    calc(100vw - 16px)
+    calc(100vw - var(--scope-chart-tooltip-inset) * 2)
   );
 }
 .tooltip.sample:not(.docked) .tooltip-heading strong {
-  font-weight: 400;
+  font-weight: var(--scope-chart-font-weight-regular);
   letter-spacing: 0;
   color: var(--color-text-secondary);
 }
@@ -586,7 +598,7 @@ button:disabled {
   padding-top: 0;
 }
 .tooltip-row[data-active] {
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
 }
 .tooltip-summary {
   display: flex;
@@ -623,9 +635,16 @@ button:disabled {
 .tooltip.docked.pinned .tooltip-heading {
   padding: var(--scope-chart-space-panel) var(--scope-chart-space-section) 0;
 }
-.tooltip.docked.pinned .tooltip-context {
-  margin-left: 27px;
+.tooltip.docked.pinned .tooltip-content > .tooltip-context {
+  margin-left: var(--scope-chart-space-section);
   margin-right: var(--scope-chart-space-section);
+}
+.tooltip.docked.pinned .tooltip-heading:has(.swatch) + .tooltip-context {
+  margin-left: calc(
+    var(--scope-chart-space-section) +
+    var(--scope-chart-swatch-width) +
+    var(--scope-chart-space-inline)
+  );
 }
 .tooltip.docked.pinned .tooltip-row {
   display: flex;
@@ -674,7 +693,7 @@ th {
   top: 0;
   z-index: 1;
   background: var(--color-surface);
-  font-weight: 600;
+  font-weight: var(--scope-chart-font-weight-strong);
 }
 tbody tr:hover {
   background: var(--color-surface-hover);
@@ -717,7 +736,10 @@ caption {
     min-height: var(--scope-chart-control-touch-height);
   }
   .toolbar .icon-button {
-    width: var(--scope-chart-control-touch-height);
+    min-width: max(
+      var(--scope-chart-control-touch-height),
+      calc(var(--scope-chart-control-height) * var(--scope-chart-font-scale))
+    );
   }
 }
 
@@ -732,12 +754,33 @@ caption {
   padding-bottom: var(--scope-chart-space-control);
 }
 .tooltip-observations > .tooltip-context {
+  margin-top: var(--scope-chart-space-control);
   margin-bottom: var(--scope-chart-space-inline);
 }
 .tooltip-observation-list {
   display: grid;
   gap: var(--scope-chart-space-micro);
   padding: 0 var(--scope-chart-space-reading);
+}
+.tooltip-observation-pages {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--scope-chart-space-inline);
+  padding: var(--scope-chart-space-inline) var(--scope-chart-space-reading) 0;
+  font-size: var(--scope-chart-font-size-context);
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.tooltip.docked .tooltip-observations > .tooltip-context {
+  margin-left: var(--scope-chart-space-section);
+  margin-right: var(--scope-chart-space-section);
+}
+.tooltip.docked .tooltip-observation-list {
+  padding: 0 var(--scope-chart-space-section);
+}
+.tooltip.docked .tooltip-observation-pages {
+  padding: var(--scope-chart-space-inline) var(--scope-chart-space-section) 0;
 }
 .tooltip .tooltip-observation {
   display: grid;

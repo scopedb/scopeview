@@ -2,6 +2,9 @@
 :host {
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --scope-chart-font-weight-regular: 400;
+  --scope-chart-font-weight-medium: 500;
+  --scope-chart-font-weight-strong: 600;
   --color-text-primary: light-dark(rgb(0, 0, 0), #eef1f6);
   --color-text-secondary: light-dark(rgba(0, 0, 0, 0.6), #b6c0ce);
   --color-text-tertiary: light-dark(rgba(0, 0, 0, 0.55), #929cab);
@@ -54,6 +57,7 @@
   --color-chart-semantic-trace-line: light-dark(#636f7c, #a7b4c2);
   --color-chart-semantic-unknown: light-dark(#808992, #868f98);
   --color-chart-semantic-unknown-line: light-dark(#666e78, #aab4be);
+  --scope-chart-space-hairline: 1px;
   --scope-chart-space-micro: 2px;
   --scope-chart-space-small: 4px;
   --scope-chart-space-inline: 6px;
@@ -68,6 +72,8 @@
   --scope-chart-font-size-caption: calc(11px * var(--scope-chart-font-scale));
   --scope-chart-font-size-context: calc(10px * var(--scope-chart-font-scale));
   --scope-chart-font-size-metric: calc(28px * var(--scope-chart-font-scale));
+  --scope-chart-font-size-metric-min: 32px;
+  --scope-chart-font-size-metric-max: 64px;
   --scope-chart-font-size-center: calc(20px * var(--scope-chart-font-scale));
   --scope-chart-font-scale: 1;
   --color-chart-axis: color-mix(in srgb, var(--color-text-primary) 22%, transparent);
@@ -86,6 +92,9 @@
     var(--color-surface)
   );
   --radius-chart-control: 4px;
+  --radius-chart-small: 3px;
+  --scope-chart-header-padding-top: 18px;
+  --scope-chart-swatch-width: 3px;
   --scope-chart-control-height: 28px;
   --scope-chart-control-touch-height: 44px;
   --scope-chart-motion-control: 120ms;
@@ -93,7 +102,10 @@
   --scope-chart-focus-width: 2px;
   --scope-chart-opacity-disabled: 0.45;
   --radius-chart-inspector: 6px;
-  --shadow-tooltip: 0 4px 16px rgb(0 0 0 / 8%), 0 1px 3px rgb(0 0 0 / 5%);
+  --shadow-tooltip:
+    0 4px 16px light-dark(rgb(0 0 0 / 8%), rgb(0 0 0 / 42%)),
+    0 1px 3px light-dark(rgb(0 0 0 / 5%), rgb(0 0 0 / 28%));
+  --scope-chart-tooltip-badge-padding-x: 5px;
   --scope-chart-tooltip-min-width: 176px;
   --scope-chart-tooltip-sample-min-width: 128px;
   --scope-chart-tooltip-max-width: 320px;
@@ -101,6 +113,7 @@
   --scope-chart-tooltip-compact-width: 260px;
   --scope-chart-tooltip-line-height: 1.4;
   --scope-chart-tooltip-row-padding: 3px;
+  --scope-chart-tooltip-inset: 8px;
   --scope-chart-tooltip-font-size: calc(12px * var(--scope-chart-font-scale));
   --color-chart-entity-label-dark: #17212e;
   --color-chart-entity-label-light: #f6f8fb;

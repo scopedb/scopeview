@@ -1,4 +1,4 @@
-import type { PaintState, ScenePainter } from '../../core/painter.js';
+import type { PaintRenderOptions, PaintState, ScenePainter } from '../../core/painter.js';
 import type {
   ChartInteraction,
   ChartScene,
@@ -50,6 +50,14 @@ export interface CanvasDiagnostics {
   frames: number;
 }
 
+const SURFACE = 'var(--color-surface)';
+const TEXT_PRIMARY = 'var(--color-text-primary)';
+const ACCENT = 'var(--color-chart-inspection-accent)';
+const GUIDE = 'var(--color-chart-inspection-guide)';
+const BASELINE = 'var(--color-chart-baseline)';
+const PINNED = 'var(--color-chart-inspection-pinned)';
+const DASH = [2, 3];
+
 /** Paints immutable scenes in CSS pixels; all interaction is projected host state. */
 export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> {
   model: ChartScene<Source> | null = null;
@@ -59,17 +67,23 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
   private probe = document.createElement('span');
   private colors = new Map<string, string>();
   private inspectionColors = new Map<string, string>();
+  private inkColors = new Map<string, string>();
   private targets = new Map<string, SceneMark[]>();
   private input: SceneInput<Source>;
   private state: PaintState = { inspectionKey: null, range: null };
   #font = '';
   #fontFamily = 'sans-serif';
   #fontSize: number = tokenLabelSize;
+  #scaleX = 1;
+  #scaleY = 1;
+  #currentFont = '';
+  #centerKey: string | null = null;
   private disposed = false;
   private baseInvalid = true;
   private basePaints = 0;
   private frames = 0;
   private cacheContext = '';
+  private allMarksKeyed = false;
 
   constructor(container: HTMLElement, decoration: HTMLElement, inspect: Inspect<Source>);
   constructor(
@@ -119,12 +133,12 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     const key = `${fill}:${step ?? ''}`;
     let paint = this.inspectionColors.get(key);
     if (!paint) {
-      paint = inspectionFill(this.color(fill), this.color('var(--color-surface)'), step);
+      paint = inspectionFill(this.color(fill), this.color(SURFACE), step);
       this.inspectionColors.set(key, paint);
     }
     return paint;
   }
-  render(scene: ChartScene<Source>, state: PaintState = this.state) {
+  render(scene: ChartScene<Source>, state: PaintState = this.state, options?: PaintRenderOptions) {
     if (this.disposed) return;
     if (!(scene.width > 0 && scene.height > 0 && Number.isFinite(scene.width + scene.height)))
       throw new Error('Scene dimensions must be finite and positive.');
@@ -133,42 +147,47 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     if (geometryChanged) {
       this.input.update(scene);
       this.targets.clear();
+      let allKeyed = true;
       for (const mark of scene.marks) {
-        if (!mark.key) continue;
+        if (!mark.key) {
+          allKeyed = false;
+          continue;
+        }
         const targets = this.targets.get(mark.key) ?? [];
         targets.push(mark);
         this.targets.set(mark.key, targets);
       }
+      this.allMarksKeyed = allKeyed;
     }
     this.model = scene;
     this.state = {
-      inspectionKey: state.inspectionKey,
+      ...state,
       hoverKey: state.hoverKey ?? null,
-      linkedInspectionKey: state.linkedInspectionKey,
-      linkedCursor: state.linkedCursor,
       inspectionPinned: state.inspectionPinned ?? false,
       inspectionSeries: state.inspectionSeries ?? null,
       selectedKey: state.selectedKey ?? (state.inspectionPinned ? state.inspectionKey : null),
       range: state.range && { ...state.range }
     };
-    const previousColors = this.colors;
-    this.colors = new Map();
-    this.inspectionColors.clear();
     let paintsChanged = false;
-    for (const [value, resolved] of previousColors)
-      if (this.color(value) !== resolved) paintsChanged = true;
-    const font = canvasFont(this.container);
-    this.#fontSize = parseFloat(font);
-    this.#fontFamily = font.slice(font.indexOf(' ') + 1);
+    if (!options?.keepColors || this.baseInvalid || !this.colors.size) {
+      const previousColors = this.colors;
+      this.colors = new Map();
+      this.inspectionColors.clear();
+      this.inkColors.clear();
+      for (const [value, resolved] of previousColors)
+        if (this.color(value) !== resolved) paintsChanged = true;
+    }
+    const font = options?.font ?? canvasFont(this.container);
     const fontChanged = font !== this.#font;
-    this.#font = font;
+    if (fontChanged) {
+      this.#font = font;
+      this.#fontSize = parseFloat(font) || tokenLabelSize;
+      this.#fontFamily = font.slice(font.indexOf(' ') + 1);
+    }
     this.root.style.pointerEvents = scene.interactive === false ? 'none' : '';
     this.root.dataset.hitMode = scene.hitMode;
     const density = window.devicePixelRatio || 1;
-    const pixelsChanged =
-      this.output.canvas.width !== Math.round(scene.width * density) ||
-      this.output.canvas.height !== Math.round(scene.height * density);
-    this.output.resize(scene.width, scene.height, density);
+    const pixelsChanged = this.output.resize(scene.width, scene.height, density);
     // Row count is unrelated to painting cost (a line can contain 10,000 vertices).
     const dense =
       scene.marks.length >= 512 ||
@@ -178,31 +197,27 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
       const cacheMissing = !this.cache;
       this.cache ??= new CanvasSurface('cache');
       this.cache.resize(scene.width, scene.height, density);
-      if (
-        this.baseInvalid ||
-        cacheMissing ||
-        geometryChanged ||
-        fontChanged ||
-        pixelsChanged ||
-        paintsChanged
-      )
+      if (cacheMissing || geometryChanged || fontChanged || pixelsChanged || paintsChanged)
         this.baseInvalid = true;
     } else {
       this.cache?.dispose();
       this.cache = null;
     }
     this.frame();
-    this.baseInvalid = false;
-    this.decoration.replaceChildren();
-    if (scene.center) {
-      const center = document.createElement('div'),
-        value = document.createElement('strong'),
-        label = document.createElement('span');
-      center.className = 'center';
-      value.textContent = scene.center.value;
-      label.textContent = scene.center.label;
-      center.append(value, label);
-      this.decoration.append(center);
+    const centerKey = scene.center ? JSON.stringify([scene.center.value, scene.center.label]) : '';
+    if (centerKey !== this.#centerKey) {
+      this.#centerKey = centerKey;
+      this.decoration.replaceChildren();
+      if (scene.center) {
+        const center = document.createElement('div'),
+          value = document.createElement('strong'),
+          label = document.createElement('span');
+        center.className = 'center';
+        value.textContent = scene.center.value;
+        label.textContent = scene.center.label;
+        center.append(value, label);
+        this.decoration.append(center);
+      }
     }
   }
   private clipped(ctx: CanvasRenderingContext2D, draw: () => void) {
@@ -217,40 +232,36 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
       draw();
     } finally {
       ctx.restore();
+      this.#currentFont = this.#font;
     }
   }
-  private base(ctx: CanvasRenderingContext2D) {
+  private base(
+    ctx: CanvasRenderingContext2D,
+    withAxes = true,
+    context: { key: string | null; series: string | null } | null = null
+  ) {
     this.basePaints++;
-    ctx.save();
-    try {
-      this.axes(ctx);
-    } finally {
-      ctx.restore();
-    }
-    const context = this.emphasisContext();
+    if (withAxes) this.axes(ctx);
+    const scene = this.model!;
     this.clipped(ctx, () => {
-      if (this.model!.partial) {
-        ctx.save();
+      if (scene.partial) {
+        const partial = scene.partial;
         ctx.globalAlpha = tokenPartialOpacity;
-        ctx.fillStyle = this.color('var(--color-text-primary)');
-        this.rectangle(ctx, this.model!.partial!);
-        ctx.restore();
+        this.fillRect(ctx, partial.x, partial.y, partial.width, partial.height, TEXT_PRIMARY);
+        ctx.globalAlpha = 1;
       }
-      for (const mark of this.model!.marks) {
+      for (const mark of scene.marks) {
         const muted =
-          (context.key &&
+          !!context &&
+          ((context.key &&
             mark.key &&
             mark.key !== context.key &&
             mark.key !== this.state.selectedKey) ||
-          (context.series && mark.series && mark.series !== context.series);
+            (context.series && mark.series && mark.series !== context.series));
         this.mark(
           ctx,
           mark,
-          muted
-            ? this.model!.emphasis === 'point'
-              ? tokenPointMutedOpacity
-              : tokenMutedOpacity
-            : 1
+          muted ? (scene.emphasis === 'point' ? tokenPointMutedOpacity : tokenMutedOpacity) : 1
         );
       }
     });
@@ -270,71 +281,78 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     };
   }
   private mark(ctx: CanvasRenderingContext2D, mark: SceneMark, prominence = 1) {
-    ctx.save();
-    try {
-      ctx.fillStyle = this.color(mark.fill);
-      ctx.globalAlpha = ('opacity' in mark ? (mark.opacity ?? 1) : 1) * prominence;
-      ctx.lineWidth =
-        mark.kind === 'path' && mark.strokeWidth !== undefined
-          ? mark.strokeWidth
-          : mark.kind === 'circle'
-            ? tokenPointStroke
-            : mark.fill === 'none'
-              ? tokenLineWidth
-              : tokenSeamWidth;
-      ctx.strokeStyle = this.color(
-        mark.kind === 'path' ? (mark.stroke ?? 'transparent') : 'var(--color-surface)'
-      );
-      if (mark.kind === 'path') {
-        const path = this.input.path(mark);
-        if (mark.fill !== 'none') ctx.fill(path);
-        if (mark.stroke && mark.stroke !== 'none') {
-          ctx.lineCap = 'round';
-          ctx.setLineDash(mark.dashed ? [5, 4] : []);
-          ctx.stroke(path);
-        }
-      } else if (mark.kind === 'rect') {
-        if (mark.fill !== 'none') this.rectangle(ctx, mark);
-      } else if (mark.kind === 'circle') {
-        ctx.beginPath();
-        ctx.arc(mark.x, mark.y, mark.radius, 0, Math.PI * 2);
-        if (mark.fill !== 'none') ctx.fill();
-        ctx.stroke();
-      } else {
-        if (mark.contrastAgainst)
-          ctx.fillStyle = this.ink(mark.contrastAgainst, mark.fill, mark.contrastInks);
-        ctx.font = `${mark.fontWeight ?? 400} ${mark.fontSize ?? this.#fontSize}px ${this.#fontFamily}`;
-        ctx.textAlign = mark.align === 'end' ? 'right' : 'left';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(mark.text, mark.x, mark.y);
+    if (mark.kind === 'rect' && mark.fill === 'none') return;
+    const alpha = ('opacity' in mark ? (mark.opacity ?? 1) : 1) * prominence;
+    if (alpha !== 1) ctx.globalAlpha = alpha;
+    ctx.fillStyle =
+      mark.kind === 'text' && mark.contrastAgainst
+        ? this.ink(mark.contrastAgainst, mark.fill, mark.contrastInks)
+        : this.color(mark.fill);
+    if (mark.kind === 'rect') this.fillRect(ctx, mark.x, mark.y, mark.width, mark.height);
+    else if (mark.kind === 'text') {
+      const font = `${mark.fontWeight ?? 400} ${mark.fontSize ?? this.#fontSize}px ${this.#fontFamily}`;
+      if (font !== this.#currentFont) ctx.font = this.#currentFont = font;
+      ctx.textAlign = mark.align === 'end' ? 'right' : 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(mark.text, mark.x, mark.y);
+    } else if (mark.kind === 'circle') {
+      ctx.lineWidth = tokenPointStroke;
+      ctx.strokeStyle = this.color(SURFACE);
+      ctx.beginPath();
+      ctx.arc(mark.x, mark.y, mark.radius, 0, Math.PI * 2);
+      if (mark.fill !== 'none') ctx.fill();
+      ctx.stroke();
+    } else {
+      ctx.save();
+      const path = this.input.path(mark);
+      if (mark.fill !== 'none') ctx.fill(path);
+      if (mark.stroke && mark.stroke !== 'none') {
+        ctx.lineWidth =
+          mark.strokeWidth ?? (mark.fill === 'none' ? tokenLineWidth : tokenSeamWidth);
+        ctx.strokeStyle = this.color(mark.stroke);
+        ctx.lineCap = 'round';
+        ctx.setLineDash(mark.dashed ? [5, 4] : []);
+        ctx.stroke(path);
       }
-    } finally {
       ctx.restore();
     }
+    if (alpha !== 1) ctx.globalAlpha = 1;
   }
-  private ink(
-    background: string,
-    fallback = 'var(--color-text-primary)',
-    preferred: readonly string[] = []
-  ) {
-    return contrastingInk(
-      this.color(background),
-      this.color('var(--color-surface)'),
-      this.color(fallback),
-      preferred.map((color) => this.color(color))
-    );
+  private ink(background: string, fallback = TEXT_PRIMARY, preferred: readonly string[] = []) {
+    const key = `${background}\0${fallback}\0${preferred.join('\0')}`;
+    let paint = this.inkColors.get(key);
+    if (!paint) {
+      paint = contrastingInk(
+        this.color(background),
+        this.color(SURFACE),
+        this.color(fallback),
+        preferred.map((color) => this.color(color))
+      );
+      this.inkColors.set(key, paint);
+    }
+    return paint;
   }
   /** Snap straight edges in backing pixels, preserving marks narrower than one pixel. */
-  private rectangle(ctx: CanvasRenderingContext2D, rect: PlotRect) {
-    const { a, d } = ctx.getTransform();
-    const axis = (start: number, size: number, scale: number) => {
-      if (size * scale < 1) return [start, size];
-      const edge = Math.round(start * scale);
-      return [edge / scale, (Math.round((start + size) * scale) - edge) / scale];
-    };
-    const [x, width] = axis(rect.x, rect.width, a),
-      [y, height] = axis(rect.y, rect.height, d);
-    ctx.fillRect(x, y, width, height);
+  private fillRect(
+    ctx: CanvasRenderingContext2D,
+    rx: number,
+    ry: number,
+    rw: number,
+    rh: number,
+    color?: string
+  ) {
+    if (rw <= 0 || rh <= 0) return;
+    if (color) ctx.fillStyle = this.color(color);
+    const sx = this.#scaleX,
+      sy = this.#scaleY,
+      x0 = Math.round(rx * sx),
+      y0 = Math.round(ry * sy);
+    ctx.fillRect(
+      rw * sx < 1 ? rx : x0 / sx,
+      rh * sy < 1 ? ry : y0 / sy,
+      rw * sx < 1 ? rw : (Math.round((rx + rw) * sx) - x0) / sx,
+      rh * sy < 1 ? rh : (Math.round((ry + rh) * sy) - y0) / sy
+    );
   }
   /** A reading rail uses the row gutter so source fill and label ink stay intact. */
   private readingRail(ctx: CanvasRenderingContext2D, rect: PlotRect) {
@@ -345,8 +363,7 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
       y = below + tokenRailHeight <= clip.y + clip.height ? below : above;
     if (y < clip.y) return;
     ctx.globalAlpha = 1;
-    ctx.fillStyle = this.color('var(--color-chart-inspection-accent, var(--color-text-primary))');
-    ctx.fillRect(rect.x, y, rect.width, tokenRailHeight);
+    this.fillRect(ctx, rect.x, y, rect.width, tokenRailHeight, ACCENT);
   }
   /** Separate the target from both the host surface and its own source fill. */
   private entityOutline(
@@ -358,21 +375,23 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
       this.readingRail(ctx, rect);
       return;
     }
-    const outer = this.ink('var(--color-surface)') === '#ffffff' ? tokenFrameDark : tokenFrameLight;
+    const outer = this.ink(SURFACE) === '#ffffff' ? tokenFrameDark : tokenFrameLight;
     const frame = (inset: number, weight: number, color: string) => {
-      const x = rect.x + inset,
+      const left = rect.startClipped ? 0 : inset,
+        right = rect.endClipped ? 0 : inset;
+      const x = rect.x + left,
         y = rect.y + inset,
-        width = rect.width - inset * 2,
+        width = rect.width - left - right,
         height = rect.height - inset * 2;
       ctx.fillStyle = color;
-      ctx.fillRect(x, y, width, weight);
-      ctx.fillRect(x, y + height - weight, width, weight);
-      if (!rect.startClipped) ctx.fillRect(x, y + weight, weight, height - weight * 2);
+      this.fillRect(ctx, x, y, width, weight);
+      this.fillRect(ctx, x, y + height - weight, width, weight);
+      if (!rect.startClipped) this.fillRect(ctx, x, y + weight, weight, height - weight * 2);
       if (!rect.endClipped)
-        ctx.fillRect(x + width - weight, y + weight, weight, height - weight * 2);
+        this.fillRect(ctx, x + width - weight, y + weight, weight, height - weight * 2);
     };
     ctx.globalAlpha = 1;
-    frame(0, outer, this.color('var(--color-chart-inspection-accent, var(--color-text-primary))'));
+    frame(0, outer, this.color(ACCENT));
     frame(outer, tokenFrameInner, this.ink(fill));
   }
   /** Inspection decorates geometry without covering labels or changing data paint. */
@@ -389,30 +408,13 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     // A tiny positive bar must retain its data ink instead of becoming all border.
     if (mark.kind === 'rect' && (mark.width < 4 || mark.height < 4)) return;
     ctx.save();
-    try {
-      if (mark.kind === 'path' && mark.fill === 'none') {
-        ctx.strokeStyle = this.color(mark.stroke ?? 'var(--color-text-primary)');
-        ctx.lineWidth = pinned ? tokenLinePinnedWidth : tokenLineHoverWidth;
-        ctx.lineCap = 'round';
-        ctx.setLineDash(mark.dashed ? [5, 4] : []);
-        ctx.stroke(this.input.path(mark));
-        return;
-      }
-      const draw = () => {
-        if (mark.kind === 'rect') {
-          const inset = Math.min(ctx.lineWidth / 2, mark.width / 2, mark.height / 2);
-          ctx.strokeRect(
-            mark.x + inset,
-            mark.y + inset,
-            mark.width - inset * 2,
-            mark.height - inset * 2
-          );
-        } else if (mark.kind === 'circle') {
-          ctx.beginPath();
-          ctx.arc(mark.x, mark.y, Math.max(0, mark.radius - ctx.lineWidth / 2), 0, Math.PI * 2);
-          ctx.stroke();
-        } else ctx.stroke(this.input.path(mark));
-      };
+    if (mark.kind === 'path' && mark.fill === 'none') {
+      ctx.strokeStyle = this.color(mark.stroke ?? TEXT_PRIMARY);
+      ctx.lineWidth = pinned ? tokenLinePinnedWidth : tokenLineHoverWidth;
+      ctx.lineCap = 'round';
+      ctx.setLineDash(mark.dashed ? [5, 4] : []);
+      ctx.stroke(this.input.path(mark));
+    } else {
       ctx.globalAlpha = 1;
       ctx.lineWidth =
         pinned && this.model?.emphasis === 'radial'
@@ -421,82 +423,91 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
             ? tokenPinnedWidth
             : tokenHoverWidth;
       ctx.strokeStyle = this.ink(mark.fill);
-      draw();
-    } finally {
-      ctx.restore();
+      if (mark.kind === 'rect') {
+        const inset = Math.min(ctx.lineWidth / 2, mark.width / 2, mark.height / 2);
+        ctx.strokeRect(
+          mark.x + inset,
+          mark.y + inset,
+          mark.width - inset * 2,
+          mark.height - inset * 2
+        );
+      } else if (mark.kind === 'circle') {
+        ctx.beginPath();
+        ctx.arc(mark.x, mark.y, Math.max(0, mark.radius - ctx.lineWidth / 2), 0, Math.PI * 2);
+        ctx.stroke();
+      } else ctx.stroke(this.input.path(mark));
     }
+    ctx.restore();
   }
   private emphasizeRectangle(
     ctx: CanvasRenderingContext2D,
-    mark: Extract<SceneMark, { kind: 'rect' }>,
+    mark: PlotRect,
     fill: string,
     composite?: GlobalCompositeOperation
   ) {
     ctx.save();
-    try {
-      if (composite) ctx.globalCompositeOperation = composite;
-      ctx.fillStyle = fill;
-      this.rectangle(ctx, mark);
-    } finally {
-      ctx.restore();
-    }
+    if (composite) ctx.globalCompositeOperation = composite;
+    ctx.fillStyle = fill;
+    this.fillRect(ctx, mark.x, mark.y, mark.width, mark.height);
+    ctx.restore();
   }
   private targetOutline(
     ctx: CanvasRenderingContext2D,
     value: SceneInteraction<Source>,
     pinned = false
   ) {
-    for (const mark of this.targets.get(value.key) ?? []) {
-      if (mark.kind === 'path' && this.model?.emphasis === 'radial' && value.radial && !pinned) {
+    const marks = this.targets.get(value.key) ?? [],
+      emphasis = this.model?.emphasis;
+    for (const mark of marks) {
+      if (mark.kind === 'path' && emphasis === 'radial' && value.radial && !pinned) {
         // The outer edge is the hover cue; retain the quiet surface-colored seams.
         this.mark(ctx, { ...mark, d: value.radial.expandedPath });
-      } else if (mark.kind === 'rect' && this.model?.emphasis === 'row') {
-        if (mark.fill === 'transparent') {
-          if (pinned) this.readingRail(ctx, { ...mark, height: mark.height - tokenRailHeight });
-        } else if (!pinned) this.emphasizeRectangle(ctx, mark, this.inspectionFill(mark.fill));
-      } else if (mark.kind === 'rect' && this.model?.emphasis === 'cell') {
-        if (pinned) this.outline(ctx, mark, true);
-        else {
-          const paint = this.inspectionFill(mark.fill, tokenCellHoverLightness);
-          this.emphasizeRectangle(ctx, mark, paint, 'source-atop');
-          for (const label of this.targets.get(value.key) ?? [])
-            if (label.kind === 'text') this.mark(ctx, { ...label, contrastAgainst: paint });
-        }
-      } else if (mark.kind === 'circle' && this.model?.emphasis === 'point') {
+      } else if (mark.kind === 'rect') {
+        if (emphasis === 'row') {
+          if (mark.fill === 'transparent') {
+            if (pinned) this.readingRail(ctx, { ...mark, height: mark.height - tokenRailHeight });
+          } else if (!pinned) this.emphasizeRectangle(ctx, mark, this.inspectionFill(mark.fill));
+        } else if (emphasis === 'cell') {
+          if (pinned) this.outline(ctx, mark, true);
+          else {
+            const paint = this.inspectionFill(mark.fill, tokenCellHoverLightness);
+            this.emphasizeRectangle(ctx, mark, paint, 'source-atop');
+            for (const label of marks)
+              if (label.kind === 'text') this.mark(ctx, { ...label, contrastAgainst: paint });
+          }
+        } else if (value.interval)
+          this.entityOutline(
+            ctx,
+            {
+              ...mark,
+              startClipped: value.interval.startClipped,
+              endClipped: value.interval.endClipped
+            },
+            mark.fill
+          );
+        else this.outline(ctx, mark, pinned);
+      } else if (mark.kind === 'circle' && emphasis === 'point') {
         // Transient readings use the source hue; a neutral ring identifies durable selection.
         ctx.save();
-        try {
-          ctx.globalAlpha = 1;
-          ctx.beginPath();
-          ctx.arc(
-            mark.x,
-            mark.y,
-            mark.radius + (pinned ? tokenPointPinnedGrowth : tokenPointHoverGrowth),
-            0,
-            Math.PI * 2
-          );
-          ctx.fillStyle = this.color(mark.fill);
-          ctx.fill();
-          ctx.lineWidth = tokenPointSeparator;
-          ctx.strokeStyle = this.color('var(--color-surface)');
-          ctx.stroke();
-          ctx.lineWidth = pinned ? tokenPinnedWidth : tokenHoverWidth;
-          ctx.strokeStyle = this.color(pinned ? 'var(--color-chart-inspection-accent)' : mark.fill);
-          ctx.stroke();
-        } finally {
-          ctx.restore();
-        }
-      } else if (mark.kind === 'rect' && value.interval)
-        this.entityOutline(
-          ctx,
-          {
-            ...mark,
-            startClipped: value.interval?.startClipped,
-            endClipped: value.interval?.endClipped
-          },
-          mark.fill
+        ctx.globalAlpha = 1;
+        ctx.beginPath();
+        ctx.arc(
+          mark.x,
+          mark.y,
+          mark.radius + (pinned ? tokenPointPinnedGrowth : tokenPointHoverGrowth),
+          0,
+          Math.PI * 2
         );
-      else this.outline(ctx, mark, pinned);
+        ctx.fillStyle = this.color(mark.fill);
+        ctx.fill();
+        ctx.lineWidth = tokenPointSeparator;
+        ctx.strokeStyle = this.color(SURFACE);
+        ctx.stroke();
+        ctx.lineWidth = pinned ? tokenPinnedWidth : tokenHoverWidth;
+        ctx.strokeStyle = this.color(pinned ? ACCENT : mark.fill);
+        ctx.stroke();
+        ctx.restore();
+      } else this.outline(ctx, mark, pinned);
     }
   }
   private line(
@@ -505,10 +516,12 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     y1: number,
     x2: number,
     y2: number,
-    color: string
+    color: string,
+    dash?: readonly number[]
   ) {
     ctx.strokeStyle = this.color(color);
-    const { a, d } = ctx.getTransform(),
+    const a = this.#scaleX,
+      d = this.#scaleY,
       vertical = x1 === x2,
       scale = vertical ? a : d,
       weight = Math.max(1, Math.round(tokenRuleWidth * scale));
@@ -520,7 +533,7 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     if (vertical) x1 = x2 = position;
     else y1 = y2 = position;
     ctx.save();
-    ctx.setLineDash(ctx.getLineDash().map((value) => value * (vertical ? d : a)));
+    if (dash?.length) ctx.setLineDash(dash.map((value) => value * (vertical ? d : a)));
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.lineWidth = weight;
     ctx.beginPath();
@@ -533,200 +546,165 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     const scene = this.model!,
       r = scene.rect;
     if (!r) return;
-    ctx.fillStyle = this.color('var(--color-chart-label, var(--color-text-tertiary))');
+    ctx.save();
+    ctx.fillStyle = this.color('var(--color-chart-label)');
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
     for (const tick of scene.yTicks) {
       if (scene.axisStyle !== 'minimal' && tick.position !== scene.baseline)
-        this.line(
-          ctx,
-          r.x,
-          tick.position,
-          r.x + r.width,
-          tick.position,
-          'var(--color-chart-grid, var(--color-border-light))'
-        );
+        this.line(ctx, r.x, tick.position, r.x + r.width, tick.position, 'var(--color-chart-grid)');
       ctx.fillText(tick.label, r.x - 8, tick.position);
     }
     if (scene.baseline !== undefined)
-      this.line(
-        ctx,
-        r.x,
-        scene.baseline,
-        r.x + r.width,
-        scene.baseline,
-        'var(--color-chart-baseline, var(--color-chart-axis))'
-      );
+      this.line(ctx, r.x, scene.baseline, r.x + r.width, scene.baseline, BASELINE);
     ctx.textAlign = 'left';
+    const xTickY = r.y + r.height + 11.5 + this.#fontSize / 2;
     for (const tick of scene.xTicks) {
       if (scene.axisStyle !== 'minimal')
-        this.line(
-          ctx,
-          tick.position,
-          r.y + r.height,
-          tick.position,
-          r.y + r.height + 3,
-          'var(--color-chart-baseline, var(--color-chart-axis))'
-        );
-      ctx.fillText(tick.label, tick.labelPosition ?? tick.position, r.y + r.height + 17);
+        this.line(ctx, tick.position, r.y + r.height, tick.position, r.y + r.height + 3, BASELINE);
+      ctx.fillText(tick.label, tick.labelPosition ?? tick.position, xTickY);
     }
     ctx.textAlign = 'center';
     ctx.fillStyle = this.color('var(--color-text-secondary)');
+    const titleOffset = this.#fontSize / 2 + 2;
     if (scene.xTitle)
-      ctx.fillText(
-        scene.xTitle,
-        r.x + r.width / 2,
-        scene.height - Math.max(10, this.#fontSize / 2 + 2)
-      );
+      ctx.fillText(scene.xTitle, r.x + r.width / 2, scene.height - Math.max(10, titleOffset));
     if (scene.yTitle) {
-      ctx.save();
-      try {
-        ctx.translate(Math.max(14, this.#fontSize / 2 + 2), r.y + r.height / 2);
-        ctx.rotate(-Math.PI / 2);
-        ctx.fillText(scene.yTitle, 0, 0);
-      } finally {
-        ctx.restore();
-      }
+      ctx.translate(Math.max(14, titleOffset), r.y + r.height / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText(scene.yTitle, 0, 0);
     }
+    ctx.restore();
   }
   private frame() {
     const scene = this.model;
     if (this.disposed || !scene) return;
+    const pointCached =
+      !!this.cache && scene.emphasis === 'point' && !scene.partial && this.allMarksKeyed;
     const context = this.emphasisContext(),
-      contextKey = JSON.stringify([
-        context.key,
-        context.series,
-        context.key ? this.state.selectedKey : null
-      ]);
+      contextKey = pointCached
+        ? 'point'
+        : JSON.stringify([
+            context.key,
+            context.series,
+            context.key ? this.state.selectedKey : null
+          ]);
     if (this.cache && (this.baseInvalid || contextKey !== this.cacheContext)) {
-      this.cache.paint(this.#font, (ctx) => this.base(ctx));
+      this.#scaleX = this.cache.scaleX;
+      this.#scaleY = this.cache.scaleY;
+      this.#currentFont = this.#font;
+      this.cache.paint(this.#font, (ctx) =>
+        this.base(ctx, !pointCached, pointCached ? null : context)
+      );
       this.cacheContext = contextKey;
     }
+    this.#scaleX = this.output.scaleX;
+    this.#scaleY = this.output.scaleY;
+    this.#currentFont = this.#font;
     this.output.paint(this.#font, (ctx) => {
       const r = scene.rect,
-        domain = scene.time?.domain;
-      const value =
-        (this.state.inspectionKey ?? this.state.linkedInspectionKey) && scene.interactive !== false
-          ? scene.interactionByKey.get(
-              (this.state.inspectionKey ?? this.state.linkedInspectionKey)!
-            )
-          : null;
+        domain = scene.time?.domain,
+        interactive = scene.interactive !== false,
+        map = interactive ? scene.interactionByKey : null,
+        activeKey = this.state.inspectionKey ?? this.state.linkedInspectionKey;
+      const value = activeKey != null && map ? (map.get(activeKey) ?? null) : null;
       const inspectionSurface = this.state.inspectionPinned
-        ? 'var(--color-chart-inspection-pinned, var(--color-surface-pressed))'
-        : 'var(--color-chart-inspection-hover, var(--color-surface-hover))';
+        ? PINNED
+        : 'var(--color-chart-inspection-hover)';
       const selected =
-        this.state.selectedKey && scene.interactive !== false
-          ? scene.interactionByKey.get(this.state.selectedKey)
-          : null;
+        this.state.selectedKey != null && map ? (map.get(this.state.selectedKey) ?? null) : null;
+      const valueMarks = value ? (this.targets.get(value.key) ?? []) : [];
       // Background state is painted before the static scene; never cover labels/fills.
       this.clipped(ctx, () => {
-        if (r && selected?.band && selected.key !== value?.key) {
-          ctx.fillStyle = this.color('var(--color-chart-inspection-pinned)');
-          ctx.fillRect(selected.band.x, r.y, selected.band.width, r.height);
-        }
+        if (r && selected?.band && selected.key !== value?.key)
+          this.fillRect(ctx, selected.band.x, r.y, selected.band.width, r.height, PINNED);
         if (r && domain && this.state.range && domain.start < domain.end) {
-          const x = (time: number) =>
-            r.x + ((time - domain.start) / (domain.end - domain.start)) * r.width;
+          const span = domain.end - domain.start,
+            left = r.x + ((this.state.range.start - domain.start) / span) * r.width;
           ctx.globalAlpha = tokenRangeOpacity;
-          ctx.fillStyle = this.color('var(--color-text-brand)');
-          ctx.fillRect(
-            x(this.state.range.start),
+          this.fillRect(
+            ctx,
+            left,
             r.y,
-            x(this.state.range.end) - x(this.state.range.start),
-            r.height
+            ((this.state.range.end - this.state.range.start) / span) * r.width,
+            r.height,
+            'var(--color-text-brand)'
           );
           ctx.globalAlpha = 1;
         }
-        if (r && value && scene.hitMode !== 'axis' && value.band) {
-          ctx.fillStyle = this.color(inspectionSurface);
-          ctx.fillRect(value.band.x, r.y, value.band.width, r.height);
-        }
-        if (r && value?.interval) {
+        if (r && value && scene.hitMode !== 'axis' && value.band)
+          this.fillRect(ctx, value.band.x, r.y, value.band.width, r.height, inspectionSurface);
+        if (r && value?.interval && this.state.inspectionPinned) {
           const interval = value.interval;
-          if (this.state.inspectionPinned) {
-            ctx.setLineDash([2, 3]);
-            const guide = 'var(--color-chart-inspection-guide, var(--color-chart-guide))';
-            if (!interval.startClipped)
-              this.line(ctx, interval.x, r.y, interval.x, r.y + r.height, guide);
-            if (!interval.endClipped && interval.width > 0)
-              this.line(
-                ctx,
-                interval.x + interval.width,
-                r.y,
-                interval.x + interval.width,
-                r.y + r.height,
-                guide
-              );
-            ctx.setLineDash([]);
-          }
+          if (!interval.startClipped)
+            this.line(ctx, interval.x, r.y, interval.x, r.y + r.height, GUIDE, DASH);
+          if (!interval.endClipped && interval.width > 0)
+            this.line(
+              ctx,
+              interval.x + interval.width,
+              r.y,
+              interval.x + interval.width,
+              r.y + r.height,
+              GUIDE,
+              DASH
+            );
         }
-        if (value)
-          for (const mark of this.targets.get(value.key) ?? [])
-            if (mark.kind === 'rect' && mark.fill === 'transparent') {
-              ctx.fillStyle = this.color(inspectionSurface);
-              ctx.fillRect(mark.x, mark.y, mark.width, mark.height);
-            }
+        for (const mark of valueMarks)
+          if (mark.kind === 'rect' && mark.fill === 'transparent')
+            this.fillRect(ctx, mark.x, mark.y, mark.width, mark.height, inspectionSurface);
       });
-      if (this.cache) ctx.drawImage(this.cache.canvas, 0, 0, scene.width, scene.height);
-      else this.base(ctx);
-      for (const label of scene.labels ?? []) this.mark(ctx, label);
+      if (this.cache) {
+        if (pointCached) {
+          this.axes(ctx);
+          if (context.key) ctx.globalAlpha = tokenPointMutedOpacity;
+        }
+        ctx.drawImage(this.cache.canvas, 0, 0, scene.width, scene.height);
+        ctx.globalAlpha = 1;
+      } else this.base(ctx, true, context);
+      if (scene.labels?.length) {
+        ctx.save();
+        for (const label of scene.labels) this.mark(ctx, label);
+        ctx.restore();
+        this.#currentFont = this.#font;
+      }
       if (scene.partial && r && r.width >= 100) {
         ctx.save();
         ctx.font = this.#font;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
         ctx.fillStyle = this.color('var(--color-text-tertiary)');
-        ctx.fillText('Partial data', r.x + r.width, r.y - 8);
+        ctx.fillText('Partial data', r.x + r.width, Math.max(this.#fontSize / 2 + 2, r.y - 8));
         ctx.restore();
       }
       if (selected && selected.key !== value?.key)
         this.clipped(ctx, () => {
           if (scene.hitMode === 'item') this.targetOutline(ctx, selected, true);
           else if (r && scene.hitMode === 'axis')
-            this.line(
-              ctx,
-              selected.anchor.x,
-              r.y,
-              selected.anchor.x,
-              r.y + r.height,
-              'var(--color-chart-inspection-accent)'
-            );
+            this.line(ctx, selected.anchor.x, r.y, selected.anchor.x, r.y + r.height, ACCENT);
         });
       const hover =
-        scene.interactive !== false && scene.hitMode === 'item' && this.state.hoverKey
-          ? scene.interactionByKey.get(this.state.hoverKey)
+        scene.hitMode === 'item' && this.state.hoverKey != null && map
+          ? (map.get(this.state.hoverKey) ?? null)
           : null;
       if (hover && hover.key !== value?.key)
         this.clipped(ctx, () => this.targetOutline(ctx, hover));
       if (r && selected && selected.key !== value?.key) {
-        const left = selected.band?.x ?? selected.anchor.x - 6;
-        const width = selected.band?.width ?? 12;
-        ctx.fillStyle = this.color('var(--color-chart-inspection-accent)');
-        ctx.fillRect(
-          Math.max(r.x, left),
+        const left = selected.band?.x ?? selected.anchor.x - 6,
+          width = selected.band?.width ?? 12,
+          railLeft = Math.max(r.x, left);
+        this.fillRect(
+          ctx,
+          railLeft,
           r.y + r.height + 3,
-          Math.max(0, Math.min(r.x + r.width, left + width) - Math.max(r.x, left)),
-          2
+          Math.min(r.x + r.width, left + width) - railLeft,
+          tokenRailHeight,
+          ACCENT
         );
       }
-      if (
-        r &&
-        !this.state.inspectionKey &&
-        this.state.linkedCursor != null &&
-        scene.interactive !== false
-      ) {
+      if (r && !this.state.inspectionKey && this.state.linkedCursor != null && interactive) {
         this.clipped(ctx, () => {
-          ctx.setLineDash([2, 3]);
           const x = r.x + this.state.linkedCursor! * r.width;
-          this.line(
-            ctx,
-            x,
-            r.y,
-            x,
-            r.y + r.height,
-            'var(--color-chart-inspection-guide, var(--color-chart-guide))'
-          );
-          ctx.setLineDash([]);
+          this.line(ctx, x, r.y, x, r.y + r.height, GUIDE, DASH);
         });
       }
       if (!value) return;
@@ -737,26 +715,18 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
           right = Math.min(r.x + r.width, value.band.x + value.band.width),
           width = Math.min(16, Math.max(0, right - left)),
           y = r.y + r.height + 3,
-          height = this.state.inspectionPinned ? 2 : 1;
-        if (width > 0 && y + height <= scene.height) {
-          ctx.fillStyle = this.color(
-            'var(--color-chart-inspection-accent, var(--color-text-primary))'
-          );
-          ctx.fillRect((left + right - width) / 2, y, width, height);
-        }
+          height = this.state.inspectionPinned ? tokenRailHeight : tokenRuleWidth;
+        if (width > 0 && y + height <= scene.height)
+          this.fillRect(ctx, (left + right - width) / 2, y, width, height, ACCENT);
       }
       this.clipped(ctx, () => {
         if (r && scene.hitMode === 'bar' && value.bars) {
           for (const bar of value.bars) {
             if (this.state.inspectionSeries !== bar.series) continue;
             const paint = this.inspectionFill(bar.color);
-            ctx.save();
-            ctx.globalCompositeOperation = 'source-atop';
-            ctx.fillStyle = paint;
-            this.rectangle(ctx, bar);
-            ctx.restore();
+            this.emphasizeRectangle(ctx, bar, paint, 'source-atop');
             // Foreground annotations must survive transient fill repainting.
-            for (const mark of this.targets.get(value.key) ?? [])
+            for (const mark of valueMarks)
               if (
                 mark.kind === 'text' &&
                 mark.x >= bar.x &&
@@ -768,15 +738,7 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
           }
         }
         if (r && scene.hitMode === 'axis') {
-          this.line(
-            ctx,
-            value.anchor.x,
-            r.y,
-            value.anchor.x,
-            r.y + r.height,
-            'var(--color-chart-inspection-guide, var(--color-chart-guide))'
-          );
-          ctx.setLineDash([]);
+          this.line(ctx, value.anchor.x, r.y, value.anchor.x, r.y + r.height, GUIDE);
           for (const point of value.points) {
             const active = this.state.inspectionSeries === point.series;
             // Stacked boundaries can coincide at zero. One active dot keeps the reading unambiguous.
@@ -789,7 +751,7 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
               0,
               Math.PI * 2
             );
-            ctx.fillStyle = this.color(active ? point.color : 'var(--color-surface)');
+            ctx.fillStyle = this.color(active ? point.color : SURFACE);
             ctx.fill();
             ctx.strokeStyle = this.color(point.color);
             ctx.lineWidth = tokenSampleStroke;
@@ -798,28 +760,44 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
         } else if (scene.hitMode !== 'bar')
           this.targetOutline(ctx, value, this.state.inspectionPinned);
       });
-      if (r && value.axisLabel && scene.height >= r.y + r.height + 28) {
-        const label = fitLabel(
-          value.axisLabel,
-          Math.min(r.width, 260) - 12,
-          (text) => ctx.measureText(text).width
-        );
-        const width = Math.min(r.width, 260, ctx.measureText(label).width + 12);
-        const left = Math.max(r.x, Math.min(r.x + r.width - width, value.anchor.x - width / 2));
-        ctx.fillStyle = this.color('var(--color-text-primary)');
-        ctx.fillRect(left, r.y + r.height + 6, width, 20);
-        ctx.fillStyle = this.color('var(--color-surface)');
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(label, left + width / 2, r.y + r.height + 16, Math.max(1, width - 10));
+      if (r && value.axisLabel) {
+        const badgeHeight = this.#fontSize + 9,
+          badgeTop = r.y + r.height + 6,
+          maxW = Math.min(r.width, 260);
+        if (scene.height >= badgeTop + badgeHeight + 2) {
+          const label = fitLabel(value.axisLabel, maxW - 12, (text) => ctx.measureText(text).width);
+          const width = Math.min(maxW, ctx.measureText(label).width + 12);
+          const left = Math.max(r.x, Math.min(r.x + r.width - width, value.anchor.x - width / 2));
+          this.fillRect(ctx, left, badgeTop, width, badgeHeight, TEXT_PRIMARY);
+          ctx.fillStyle = this.color(SURFACE);
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(
+            label,
+            left + width / 2,
+            badgeTop + badgeHeight / 2,
+            Math.max(1, width - 10)
+          );
+        }
       }
     });
     this.frames++;
     this.baseInvalid = false;
-    const { strategy, surfaces, backingBytes } = this.diagnostics;
-    this.root.dataset.paintStrategy = strategy;
-    this.root.dataset.surfaceCount = String(surfaces);
-    this.root.dataset.backingBytes = String(backingBytes);
+    this.root.dataset.paintStrategy = this.cache ? 'cached' : 'direct';
+    this.root.dataset.surfaceCount = this.cache ? '2' : '1';
+    this.root.dataset.backingBytes = String(
+      this.output.backingBytes + (this.cache?.backingBytes ?? 0)
+    );
+  }
+  link(inspectionKey: string | null, cursor: number | null) {
+    if (
+      inspectionKey === (this.state.linkedInspectionKey ?? null) &&
+      cursor === (this.state.linkedCursor ?? null)
+    )
+      return;
+    this.state.linkedInspectionKey = inspectionKey;
+    this.state.linkedCursor = cursor;
+    this.frame();
   }
   anchor(interaction: ChartInteraction<Source>) {
     return this.model?.interactionByKey.get(interaction.key)?.anchor ?? null;
@@ -831,29 +809,27 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     selectedKey: string | null = pinned ? (interaction?.key ?? null) : null,
     hoverKey: string | null = null
   ) {
-    const key = interaction?.key ?? null;
+    const key = interaction?.key ?? null,
+      s = this.state;
     pinned = key !== null && pinned;
     if (
-      key === this.state.inspectionKey &&
-      pinned === this.state.inspectionPinned &&
-      series === this.state.inspectionSeries &&
-      selectedKey === this.state.selectedKey &&
-      hoverKey === this.state.hoverKey
+      key === s.inspectionKey &&
+      pinned === s.inspectionPinned &&
+      series === s.inspectionSeries &&
+      selectedKey === s.selectedKey &&
+      hoverKey === s.hoverKey
     )
       return;
-    this.state = {
-      ...this.state,
-      inspectionKey: key,
-      inspectionPinned: pinned,
-      inspectionSeries: series,
-      selectedKey,
-      hoverKey
-    };
+    s.inspectionKey = key;
+    s.inspectionPinned = pinned;
+    s.inspectionSeries = series;
+    s.selectedKey = selectedKey;
+    s.hoverKey = hoverKey;
     this.frame();
   }
   selection(range: TimeWindow | null) {
     if (range?.start === this.state.range?.start && range?.end === this.state.range?.end) return;
-    this.state = { ...this.state, range: range && { ...range } };
+    this.state.range = range && { ...range };
     this.frame();
   }
   dispose() {
@@ -865,6 +841,8 @@ export class CanvasRenderer<Source = ResultRow> implements ScenePainter<Source> 
     this.targets.clear();
     this.colors.clear();
     this.inspectionColors.clear();
+    this.inkColors.clear();
+    this.#centerKey = null;
     this.model = null;
     this.state = { inspectionKey: null, range: null };
     this.output.dispose();

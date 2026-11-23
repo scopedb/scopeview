@@ -3,7 +3,7 @@
   position: relative;
   min-width: 0;
   height: var(--scope-chart-height, var(--scope-report-height));
-  font-family: var(--font-sans);
+  font: var(--scope-chart-font-size-body) / 1.5 var(--font-sans);
   color: var(--color-text-primary);
   background: var(--color-surface);
 }
@@ -15,6 +15,7 @@
 }
 .canvas,
 .decoration,
+.center,
 .status {
   position: absolute;
   inset: 0;
@@ -22,29 +23,43 @@
 .canvas:focus-visible {
   outline: var(--scope-chart-focus-width) solid var(--color-text-brand);
   outline-offset: -2px;
+  border-radius: 3px;
 }
 .decoration {
   pointer-events: none;
+  overflow: hidden;
 }
 .center,
 .status {
-  height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: var(--scope-chart-space-panel);
+  text-align: center;
+  overflow-wrap: anywhere;
 }
 .center {
-  display: flex;
   flex-direction: column;
+  pointer-events: none;
 }
 .center strong {
   font-size: var(--scope-chart-font-size-center);
+  font-weight: 600;
 }
-.center span,
+.center span {
+  max-width: 35%;
+  color: var(--color-text-secondary);
+  font-size: var(--scope-chart-font-size-control);
+}
 .status {
+  gap: var(--scope-chart-space-panel);
+  padding: 24px;
   font-size: var(--scope-chart-font-size-caption);
   color: var(--color-text-secondary);
+  background: var(--color-surface);
+}
+:host([data-state="error"]) .status,
+.status.error {
+  color: var(--color-text-danger);
 }
 .tooltip {
   position: fixed;
@@ -52,11 +67,18 @@
   margin: 0;
   inset: auto;
   z-index: 2147483647;
-  width: max-content;
-  min-width: min(var(--scope-chart-tooltip-min-width), calc(100vw - 16px));
-  max-width: min(var(--scope-chart-tooltip-max-width), calc(100vw - 16px));
+  width: var(--scope-chart-tooltip-width, max-content);
+  min-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-min-width)),
+    calc(100vw - 16px)
+  );
+  max-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-max-width)),
+    calc(100vw - 16px)
+  );
   max-height: calc(100dvh - 16px);
   overflow: auto;
+  overscroll-behavior: contain;
   overflow-wrap: anywhere;
   pointer-events: none;
   background: var(--color-surface);
@@ -71,36 +93,65 @@
   display: none;
 }
 .tooltip.compact {
-  width: min(var(--scope-chart-tooltip-compact-width), calc(100vw - 16px));
-  max-width: min(var(--scope-chart-tooltip-compact-width), calc(100vw - 16px));
+  max-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-compact-width)),
+    calc(100vw - 16px)
+  );
+}
+.tooltip.compact .tooltip-heading strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+.tooltip.compact .tooltip-context {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tooltip.compact .tooltip-value {
+  font-weight: 600;
+}
+.tooltip-heading,
+.tooltip-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--scope-chart-space-inline);
 }
 .tooltip-heading {
-  display: flex;
-  gap: var(--scope-chart-space-inline);
   padding: var(--scope-chart-space-control) var(--scope-chart-space-reading) 0;
 }
 .tooltip-heading strong {
+  flex: 1;
+  min-width: 0;
+}
+.tooltip-heading strong,
+.tooltip-row[data-format="number"] .tooltip-value {
   font-weight: 600;
+  letter-spacing: -0.015em;
 }
 .tooltip-context {
   margin: var(--scope-chart-space-micro) var(--scope-chart-space-reading) 0;
-  font-size: var(--scope-chart-font-size-context);
   color: var(--color-text-secondary);
+  font:
+    var(--scope-chart-font-size-context) / var(--scope-chart-tooltip-line-height) var(--font-mono);
 }
 .tooltip-body {
   padding: var(--scope-chart-space-inline) var(--scope-chart-space-reading)
     var(--scope-chart-space-control);
 }
+.tooltip:not(.compact):not(.sample) :is(.tooltip-heading, .tooltip-context) + .tooltip-body {
+  margin-top: var(--scope-chart-space-inline);
+  border-top: 1px solid var(--color-border-light);
+}
 .tooltip-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.8fr);
   gap: var(--scope-chart-space-panel);
   align-items: baseline;
   padding: var(--scope-chart-tooltip-row-padding) 0;
 }
 .tooltip-label {
-  display: flex;
-  gap: var(--scope-chart-space-inline);
   color: var(--color-text-secondary);
 }
 .tooltip-value {
@@ -108,14 +159,29 @@
   font-variant-numeric: tabular-nums;
   min-width: 0;
 }
+.tooltip-row[data-format="number"] {
+  grid-template-columns: minmax(0, 1fr) minmax(0, max-content);
+}
 .tooltip-row[data-format="code"] .tooltip-value {
-  font-family: var(--font-mono);
+  font: var(--scope-chart-font-size-caption) / 1.7 var(--font-mono);
 }
 .tooltip-row[data-tone="danger"] .tooltip-value {
   color: var(--color-text-danger);
 }
 .tooltip-row[data-tone="warning"] .tooltip-value {
   color: var(--color-chart-warning);
+}
+.tooltip-row[data-tone] .tooltip-label::before {
+  content: "";
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-chart-warning);
+  align-self: center;
+}
+.tooltip-row[data-tone="danger"] .tooltip-label::before {
+  background: var(--color-text-danger);
 }
 .tooltip-row[data-active] {
   font-weight: 600;
@@ -133,13 +199,19 @@
   justify-content: space-between;
   gap: var(--scope-chart-space-section);
   margin: 0 var(--scope-chart-space-reading) var(--scope-chart-space-control);
+  padding-top: var(--scope-chart-space-inline);
+  border-top: 1px solid var(--color-border-light);
   font-variant-numeric: tabular-nums;
 }
 .tooltip.sample {
-  min-width: min(var(--scope-chart-tooltip-sample-min-width), calc(100vw - 16px));
+  min-width: min(
+    var(--scope-chart-tooltip-width, var(--scope-chart-tooltip-sample-min-width)),
+    calc(100vw - 16px)
+  );
 }
 .tooltip.sample .tooltip-heading strong {
   font-weight: 400;
+  letter-spacing: 0;
   color: var(--color-text-secondary);
 }
 .tooltip.sample .tooltip-context {
@@ -149,6 +221,9 @@
   overflow: hidden;
   clip-path: inset(50%);
 }
+.tooltip.sample .tooltip-body {
+  padding-top: 0;
+}
 .canvas[data-scope-panning] .plot {
-  cursor: grabbing;
+  cursor: grabbing !important;
 }

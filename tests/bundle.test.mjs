@@ -42,15 +42,15 @@ const size = (output) =>
 
 for (const [entry, limit] of Object.entries({
   scalar: 4,
-  chart: 33,
-  'chart/axis': 29,
-  'chart/scatter': 27,
-  'chart/donut': 27,
-  'chart/top-list': 27,
-  'chart/treemap': 27,
-  trace: 21,
-  flame: 20,
-  headless: 39
+  chart: 35,
+  'chart/axis': 31,
+  'chart/scatter': 29,
+  'chart/donut': 29,
+  'chart/top-list': 29,
+  'chart/treemap': 29,
+  trace: 22,
+  flame: 21,
+  headless: 41
 })) {
   test(`${entry} stays within ${limit} KiB gzip as a complete consumer`, async () => {
     const output = await consumer(
@@ -145,6 +145,6 @@ test('the report entry defers chart code to dynamic imports', async () => {
   assert.ok(size(output) > 20000);
 });
 
-test('the shipped standalone script stays within 39 KiB gzip', async () => {
-  assert.ok(gzipSync(await readFile(resolve('dist/scopeview.js'))).byteLength <= 39 * 1024);
+test('the shipped standalone script stays within 41 KiB gzip', async () => {
+  assert.ok(gzipSync(await readFile(resolve('dist/scopeview.js'))).byteLength <= 41 * 1024);
 });

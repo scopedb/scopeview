@@ -13,6 +13,16 @@ export interface ReportView extends ChartView {
   update(document: unknown): Promise<void>;
 }
 
+const tokenNamesCache = new Map<string, readonly string[]>();
+function parseTokenNames(tokens: string): readonly string[] {
+  let names = tokenNamesCache.get(tokens);
+  if (!names) {
+    names = [...new Set(tokens.match(/--[\w-]+(?=\s*:)/g) ?? [])];
+    tokenNamesCache.set(tokens, names);
+  }
+  return names;
+}
+
 /** Shared token inheritance and owned DOM, without a Canvas or interaction dependency. */
 export class ViewHost {
   readonly element = node('div', 'scopeview-view');
@@ -21,7 +31,7 @@ export class ViewHost {
   disposed = false;
   repaint = () => {};
   #theme: ChartTheme = 'light';
-  #tokens: string[];
+  #tokens: readonly string[];
   #overrides: Record<string, string> = {};
 
   constructor(
@@ -31,7 +41,7 @@ export class ViewHost {
     theme: ChartTheme = 'light'
   ) {
     this.root.append(node('style', '', tokens + styles));
-    this.#tokens = [...tokens.matchAll(/(--[\w-]+)\s*:/g)].map((match) => match[1]);
+    this.#tokens = parseTokenNames(tokens);
     this.theme = theme;
     host.append(this.element);
     window

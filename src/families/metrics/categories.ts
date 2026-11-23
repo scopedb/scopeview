@@ -44,7 +44,8 @@ function categoryData(compiled: CompiledChart): CategoryDatum[] {
 export function categoryContext(
   compiled: CompiledChart,
   model: ChartScene,
-  hidden: ReadonlySet<string>
+  hidden: ReadonlySet<string>,
+  miniature = false
 ) {
   const { width, height } = model,
     { config, dataset } = compiled;
@@ -55,14 +56,21 @@ export function categoryContext(
   const column = chartColumn(dataset, metric)!;
   const display = compiled.displays.get(metric);
   const items = categoryData(compiled).filter((item) => !hidden.has(item.label));
-  const staticView = compiled.document.options?.presentation === 'sparkline';
+  const staticView = miniature || compiled.document.options?.presentation === 'sparkline';
   const ranked = config.displayType !== 'treemap';
-  const maximum = Math.max(0, ...items.map((item) => item.value ?? 0));
+  let maximum = 0;
+  for (const item of items) if (item.value !== null && item.value > maximum) maximum = item.value;
   const scaledTotal = items.reduce(
     (sum, item) => sum + (maximum > 0 ? (item.value ?? 0) / maximum : 0),
     0
   );
-  const bounds = { x: 8, y: 8, width: Math.max(1, width - 16), height: Math.max(1, height - 16) };
+  const inset = staticView ? 1 : 8;
+  const bounds = {
+    x: inset,
+    y: inset,
+    width: Math.max(1, width - inset * 2),
+    height: Math.max(1, height - inset * 2)
+  };
   model.rect = bounds;
   const makeInteraction = (
     item: CategoryDatum,

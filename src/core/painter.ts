@@ -19,10 +19,15 @@ export interface PaintState {
   range: TimeWindow | null;
 }
 
+export interface PaintRenderOptions {
+  font?: string;
+  keepColors?: boolean;
+}
+
 /** A painter consumes geometry; it never owns layout or interaction state. */
 export interface ScenePainter<Source> {
   model: ChartScene<Source> | null;
-  render(scene: ChartScene<Source>, state?: PaintState): void;
+  render(scene: ChartScene<Source>, state?: PaintState, options?: PaintRenderOptions): void;
   anchor(interaction: ChartInteraction<Source>): Position | null;
   focus(
     interaction: ChartInteraction<Source> | null,
@@ -32,5 +37,6 @@ export interface ScenePainter<Source> {
     hoverKey?: string | null
   ): void;
   selection(range: TimeWindow | null): void;
+  link?(inspectionKey: string | null, cursor: number | null): void;
   dispose(): void;
 }

@@ -91,6 +91,7 @@ export interface HierarchyView<Source extends Entity> {
   collapsed: ReadonlySet<string>;
   rowCount: number;
   rowHeight: number;
+  interactive: boolean;
   index: RowIntervalIndex<Source>;
   navigation: RenderModel<Source>;
   issues: readonly HierarchyIssue[];
@@ -98,14 +99,16 @@ export interface HierarchyView<Source extends Entity> {
   formatValue(value: bigint, resolution: bigint): string;
   axisTitle: string;
 }
+export const DEFAULT_ROW_HEIGHT = 24;
 export function createView<Source extends Entity>(
-  input: Omit<HierarchyView<Source>, 'index' | 'byId' | 'navigation' | 'rowHeight'>
+  input: Omit<HierarchyView<Source>, 'index' | 'byId' | 'navigation' | 'rowHeight' | 'interactive'>
 ): HierarchyView<Source> {
   const interactions = input.items.map((item) => item.interaction);
   return {
     ...input,
     collapsed: new Set(input.collapsed),
-    rowHeight: input.document.options?.rowHeight ?? 24,
+    rowHeight: input.document.options?.rowHeight ?? DEFAULT_ROW_HEIGHT,
+    interactive: input.document.options?.interactive ?? true,
     index: new RowIntervalIndex(input.items),
     byId: new Map(input.items.map((item) => [item.id, item])),
     navigation: {
@@ -117,14 +120,18 @@ export function createView<Source extends Entity>(
   };
 }
 const HIERARCHY_PADDING = Object.freeze({ top: 24, bottom: 40, left: 12, right: 12 });
+export function hierarchyPadding(axes: AxisMode = 'full') {
+  if (axes === 'full') return HIERARCHY_PADDING;
+  return {
+    top: tokenReportInset,
+    bottom: axes === 'none' ? tokenReportInset : tokenReportAxisSpace,
+    left: HIERARCHY_PADDING.left,
+    right: HIERARCHY_PADDING.right
+  };
+}
 export function hierarchyViewportHeight(height: number, axes: AxisMode = 'full') {
-  return Math.max(
-    1,
-    height -
-      (axes === 'full'
-        ? HIERARCHY_PADDING.top + HIERARCHY_PADDING.bottom
-        : tokenReportInset + (axes === 'none' ? tokenReportInset : tokenReportAxisSpace))
-  );
+  const padding = hierarchyPadding(axes);
+  return Math.max(1, height - padding.top - padding.bottom);
 }
 
 /** Shared virtualization/label layout produces ordinary Canvas scene primitives. */
@@ -149,11 +156,12 @@ export function layoutHierarchy<Source extends Entity>(
     viewport.scrollOffset < 0
   )
     throw new RangeError('Invalid scene size or viewport.');
+  const padding = hierarchyPadding(axes);
   const rect = {
-    x: HIERARCHY_PADDING.left,
-    y: axes === 'full' ? HIERARCHY_PADDING.top : tokenReportInset,
-    width: Math.max(1, width - HIERARCHY_PADDING.left - HIERARCHY_PADDING.right),
-    height: hierarchyViewportHeight(height, axes)
+    x: padding.left,
+    y: padding.top,
+    width: Math.max(1, width - padding.left - padding.right),
+    height: Math.max(1, height - padding.top - padding.bottom)
   };
   const rowHeight = fitRows
     ? Math.min(view.rowHeight, rect.height / Math.max(1, view.rowCount))
@@ -163,6 +171,12 @@ export function layoutHierarchy<Source extends Entity>(
   const labelSize = (tokenEntityLabelSize * baseSize) / tokenLabelSize,
     labelInset = tokenEntityLabelInset;
   const measureLabel = (text: string) => measure(text) * (labelSize / baseSize);
+  const showText = markHeight >= labelSize + tokenEntityLabelInsetY * 2;
+  const ellipsisWidth = showText ? measureLabel('…') : 0;
+  const overflowMinWidth = Math.max(
+    tokenEntityOverflowInset * 2,
+    ellipsisWidth + tokenEntityOverflowInset * 2
+  );
   const span = viewport.end - viewport.start,
     x = (value: number) => rect.x + ((value - viewport.start) / span) * rect.width;
   const scene: ChartScene<Source> = {
@@ -177,7 +191,7 @@ export function layoutHierarchy<Source extends Entity>(
     interactions: [],
     interactionByKey: new Map(),
     navigation: view.navigation,
-    interactive: view.document.options?.interactive ?? true,
+    interactive: view.interactive,
     ariaLabel: view.navigation.ariaLabel,
     xTitle: axes === 'full' ? view.axisTitle : undefined,
     axisStyle: axes === 'minimal' ? 'minimal' : undefined,
@@ -198,33 +212,31 @@ export function layoutHierarchy<Source extends Entity>(
     const y = rect.y + item.row * rowHeight - viewport.scrollOffset;
     const key = item.interaction.key;
     if (right > left) {
+      const spanWidth = right - left;
       scene.marks.push({
         kind: 'rect',
         key,
         x: left,
         y,
-        width: right - left,
+        width: spanWidth,
         height: markHeight,
         fill: item.color
       });
-      if (markHeight >= labelSize + tokenEntityLabelInsetY * 2) {
+      if (showText) {
         const prefix = view.collapsed.has(item.id) ? '▸ ' : '';
-        const label = fitLabel(
-          prefix + item.interaction.tooltip.title!,
-          right - left - labelInset * 2,
-          measureLabel,
-          4 + prefix.length
-        );
+        const title = prefix + item.interaction.tooltip.title!;
+        const available = spanWidth - labelInset * 2;
+        let label = '';
+        if (available >= ellipsisWidth)
+          label = fitLabel(title, available, measureLabel, 4 + prefix.length);
+        else if (available >= 0 && measureLabel(title) <= available) label = title;
         // A centered overflow cue distinguishes a narrow named span from an empty
         // block. Do not invent abbreviations or change the duration/weight geometry.
-        const overflow =
-          !label &&
-          right - left >= tokenEntityOverflowInset * 2 &&
-          right - left >= measureLabel('…') + tokenEntityOverflowInset * 2;
+        const overflow = !label && spanWidth >= overflowMinWidth;
         if (label || overflow)
           scene.marks.push({
             kind: 'text',
-            x: label ? left + labelInset : (left + right - measureLabel('…')) / 2,
+            x: label ? left + labelInset : (left + right - ellipsisWidth) / 2,
             y: y + markHeight / 2,
             text: label || '…',
             fontSize: labelSize,

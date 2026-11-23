@@ -95,14 +95,17 @@ export function compileAxisChartModel(
   for (const row of dataset.rows) {
     const time = chartValue(row, x);
     if (!(time instanceof Date)) continue;
-    times.add(time.getTime());
+    const ms = time.getTime(),
+      groupName = group ? groupSeriesName(chartValue(row, group)) : null;
+    times.add(ms);
     for (const metric of metrics) {
-      const value = chartValue(row, metric);
+      const value = chartValue(row, metric),
+        isNum = typeof value === 'number';
       samples.push({
-        time: time.getTime(),
-        series: group ? groupSeriesName(chartValue(row, group)) : metric.label,
-        value: typeof value === 'number' ? value : null,
-        state: typeof value === 'number' ? 'value' : 'null',
+        time: ms,
+        series: groupName ?? metric.label,
+        value: isNum ? value : null,
+        state: isNum ? 'value' : 'null',
         source: row.source
       });
     }
