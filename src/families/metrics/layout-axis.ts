@@ -34,25 +34,12 @@ function linePath(points: readonly Position[]) {
   return points.map((p, i) => `${i ? 'L' : 'M'}${xy(p.x, p.y)}`).join('');
 }
 
-export const layoutAxis: MetricLayout = (
-  compiled,
-  hidden,
-  width,
-  height,
-  measure,
-  axes = 'full'
-) => {
+export const layoutAxis: MetricLayout = (compiled, hidden, width, height, measure, axes) => {
   const { dataset, config } = compiled;
   const { mapping, displayType } = config;
   if (mapping.kind !== 'axis') throw new TypeError('An axis layout requires an axis mapping.');
-  const { model, finish, visible, labels, showLabels, full, miniature, report } = layoutContext(
-    compiled,
-    hidden,
-    width,
-    height,
-    measure,
-    axes
-  );
+  const { model, finish, visible, labels, showLabels, full, miniature, report, compact } =
+    layoutContext(compiled, hidden, width, height, measure, axes);
   const semantic = compiled.axisModel ?? compileAxisChartModel(dataset, mapping);
   const temporal = semantic.kind === 'time-series';
   const bucket = temporal && semantic.sampling === 'buckets' ? semantic : null;
@@ -119,7 +106,17 @@ export const layoutAxis: MetricLayout = (
     const unit = units.size === 1 ? units.values().next().value : undefined;
     if (unit) yAxis.labels[yAxis.labels.length - 1] += ` ${unit}`;
   }
-  const r = frame(width, height, yAxis, full, measure, 0, miniature, full || (report && temporal));
+  const r = frame(
+    width,
+    height,
+    yAxis,
+    full,
+    measure,
+    0,
+    miniature,
+    full || (report && !compact && temporal),
+    compact
+  );
   model.rect = r;
   model.clipRect = r;
   const y = linear(yAxis.domain, [r.y + r.height, r.y]);
@@ -130,7 +127,7 @@ export const layoutAxis: MetricLayout = (
       ] as const)
     : ([0, Math.max(0, positions.length - 1)] as const);
   // Reserve the same horizontal edge space across line, area and bar styles.
-  const edge = bucket || miniature ? 0 : Math.min(28, r.width / 4);
+  const edge = bucket || miniature || compact ? 0 : Math.min(28, r.width / 4);
   const scaleX = linear(domain, [r.x + edge, r.x + r.width - edge]);
   const x = (p: number | string) => scaleX(temporal ? Number(p) : positionsByValue.get(p)!);
   const bucketEdges = (p: number | string) =>
@@ -181,7 +178,8 @@ export const layoutAxis: MetricLayout = (
       label:
         formatTemporalTick(new Date(value), span) + (differentOffsets ? ` ${zoneLabel(value)}` : '')
     }));
-    if (full || report) model.xTitle = temporalAxisCaption(full ? xColumn.label : '', start, end);
+    if (full || (report && !compact))
+      model.xTitle = temporalAxisCaption(full ? xColumn.label : '', start, end);
   } else {
     model.xTicks = positions.map((p) => ({ position: x(p), label: String(p) }));
     if (full) model.xTitle = xColumn.label;

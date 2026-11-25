@@ -34,20 +34,24 @@ export function frame(
   measure: MeasureText,
   inset = 0,
   miniature = false,
-  caption = full
+  caption = full,
+  compact = false
 ): PlotRect {
   if (miniature)
     return { x: 1, y: 1, width: Math.max(1, width - 2), height: Math.max(1, height - 2) };
   const labelWidth = Math.min(width * 0.25, Math.max(...axis.labels.map(measure)));
-  const x = Math.max(full ? 30 : 8, inset + 8) + labelWidth + 8;
-  const y = 16 + inset;
+  const x = Math.max(full ? 30 : 8, inset + 8) + labelWidth + 8,
+    pad = compact ? 6 : 16,
+    y = pad + inset;
   return {
     x,
     y,
-    width: Math.max(1, width - x - 16 - inset),
+    width: Math.max(1, width - x - pad - inset),
     height: Math.max(
       1,
-      height - y - (caption ? 56 : 30) - Math.max(0, (measure.fontSize ?? 11) - 11) * 2
+      compact
+        ? height - y * 2
+        : height - y - (caption ? 56 : 30) - Math.max(0, (measure.fontSize ?? 11) - 11) * 2
     )
   };
 }
@@ -80,16 +84,20 @@ export function layoutContext(
   width: number,
   height: number,
   measure: MeasureText,
-  axes: AxisMode = 'full'
+  axes?: AxisMode
 ) {
   const { dataset, config } = compiled;
   const { mapping, displayType } = config;
   const presentation = compiled.document.options?.presentation ?? 'full';
-  const full = presentation === 'full' && axes === 'full';
-  const miniature = presentation === 'sparkline' || axes === 'none';
-  const report = axes === 'minimal' && !miniature;
+  const sparkline = presentation === 'sparkline';
+  const mode: AxisMode = axes ?? (sparkline ? 'none' : 'full');
+  const full = !sparkline && mode === 'full';
+  const compact = sparkline && mode === 'minimal';
+  const miniature = mode === 'none' || (sparkline && !compact);
+  const report = mode === 'minimal' && !miniature;
   const directLabels =
     report &&
+    !compact &&
     displayType === 'bar' &&
     compiled.axisModel?.kind === 'categorical' &&
     compiled.series.length === 1 &&
@@ -97,13 +105,14 @@ export function layoutContext(
   const labels: DataLabel[] = [];
   const showLabels =
     !miniature &&
+    !compact &&
     (compiled.document.options?.labels === 'auto' ||
       (compiled.document.options?.labels === undefined && directLabels));
   const finish = (scene: ChartScene) => {
-    if (miniature) {
+    if (miniature || compact) {
       scene.xTicks = [];
-      scene.yTicks = [];
       delete scene.baseline;
+      if (miniature) scene.yTicks = [];
     }
     if (showLabels)
       scene.labels = layoutDataLabels(
@@ -113,12 +122,18 @@ export function layoutContext(
       );
     if (report) {
       scene.axisStyle = 'minimal';
-      scene.yTicks = sparseTicks(scene.yTicks, tokenReportAxisTicks, scene.baseline);
-      if (compiled.axisModel?.kind === 'time-series' || mapping.kind === 'scatter')
-        scene.xTicks = sparseTicks(scene.xTicks, tokenReportAxisTicks);
-      // Only omit the value ruler when every source has a visible exact label.
-      if (directLabels && scene.labels?.length === scene.interactions.length && scene.labels.length)
-        scene.yTicks = [];
+      scene.yTicks = sparseTicks(scene.yTicks, compact ? 2 : tokenReportAxisTicks, scene.baseline);
+      if (!compact) {
+        if (compiled.axisModel?.kind === 'time-series' || mapping.kind === 'scatter')
+          scene.xTicks = sparseTicks(scene.xTicks, tokenReportAxisTicks);
+        // Only omit the value ruler when every source has a visible exact label.
+        if (
+          directLabels &&
+          scene.labels?.length === scene.interactions.length &&
+          scene.labels.length
+        )
+          scene.yTicks = [];
+      }
     }
     return layoutAxisLabels(scene, measure);
   };
@@ -139,10 +154,21 @@ export function layoutContext(
     interactions: [],
     interactionByKey: new Map(),
     ariaLabel: chartAriaLabel(dataset, config),
-    interactive: compiled.document.options?.interactive ?? presentation !== 'sparkline',
+    interactive: compiled.document.options?.interactive ?? !sparkline,
     provenance: compiled.document.semantics?.provenance
   };
-  return { model, finish, visible, quantity, labels, showLabels, full, miniature, report };
+  return {
+    model,
+    finish,
+    visible,
+    quantity,
+    labels,
+    showLabels,
+    full,
+    miniature,
+    report,
+    compact
+  };
 }
 
 export const layoutEmpty: MetricLayout = (...args) => layoutContext(...args).model;

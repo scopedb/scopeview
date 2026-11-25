@@ -579,7 +579,7 @@ export class ScopeChartElement extends HTMLElement {
               this.#inspect(value, position, pin, false, series, neighbors)
           );
         }
-        this.#plot.update(compiled, this.#session.hidden, this.#ui.axes ?? 'full');
+        this.#plot.update(compiled, this.#session.hidden, this.#ui.axes);
         this.#renderedCompiled = compiled;
         this.#plot.linkedHighlight = this.#linkedHighlight;
         this.#plot.rangeSelection = this.#rangeSelection;

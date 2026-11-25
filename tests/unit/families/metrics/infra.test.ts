@@ -218,8 +218,57 @@ describe('source precision and presentation', () => {
     expect(model.rect!.height).toBe(22);
     expect(model.xTicks).toEqual([]);
     expect(model.yTicks).toEqual([]);
+    expect(model.baseline).toBeUndefined();
     expect(model.interactive).toBe(false);
     expect(model.provenance).toEqual(doc.semantics.provenance);
+  });
+  it('shows a 2-endpoint y value domain on sparklines when axes is minimal', () => {
+    const doc = buckets();
+    doc.options = {
+      presentation: 'sparkline',
+      values: [
+        {
+          field: fieldRef(buildChartDataset(doc.data), 'result-column-1'),
+          divisor: '1',
+          unit: 'ops'
+        }
+      ]
+    };
+    const compiled = compileChart(doc);
+    const borderless = layoutChart(compiled, new Set(), 240, 40, measure);
+    expect(borderless.rect).toEqual({ x: 1, y: 1, width: 238, height: 38 });
+    expect(borderless.yTicks).toEqual([]);
+    expect(borderless.xTicks).toEqual([]);
+    expect(borderless.baseline).toBeUndefined();
+
+    const withDomain = layoutChart(compiled, new Set(), 240, 40, measure, 'minimal');
+    expect(withDomain.axisStyle).toBe('minimal');
+    expect(withDomain.yTicks).toHaveLength(2);
+    expect(withDomain.yTicks[0].label).toBe('0');
+    expect(withDomain.yTicks[1].label).toContain('ops');
+    expect(withDomain.xTicks).toEqual([]);
+    expect(withDomain.xTitle).toBeUndefined();
+    expect(withDomain.yTitle).toBeUndefined();
+    expect(withDomain.baseline).toBeUndefined();
+    expect(withDomain.rect!.x).toBeGreaterThan(1);
+    expect(withDomain.rect!.y).toBe(6);
+    expect(withDomain.rect!.height).toBe(28);
+    expect(withDomain.interactive).toBe(false);
+
+    const interactiveDomain = layoutChart(
+      compileChart({ ...doc, options: { ...doc.options, interactive: true } }),
+      new Set(),
+      240,
+      40,
+      measure,
+      'minimal'
+    );
+    expect(interactiveDomain.interactive).toBe(true);
+    expect(interactiveDomain.yTicks).toHaveLength(2);
+
+    const collapsed = layoutChart(compiled, new Set(), 240, 40, measure, 'none');
+    expect(collapsed.rect).toEqual({ x: 1, y: 1, width: 238, height: 38 });
+    expect(collapsed.yTicks).toEqual([]);
   });
   it('applies the same exact display policy to donut and scatter inspection', () => {
     const doc = categories([

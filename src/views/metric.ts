@@ -44,7 +44,15 @@ export function createMetric(
       tokens,
       (width, height, measure, hidden) => {
         rendered = compiled;
-        return layout(compiled, hidden, width, height, measure, options.axes ?? 'minimal');
+        return layout(
+          compiled,
+          hidden,
+          width,
+          height,
+          measure,
+          options.axes ??
+            (compiled.document.options?.presentation === 'sparkline' ? 'none' : 'minimal')
+        );
       },
       {
         snapshot: () => rendered,

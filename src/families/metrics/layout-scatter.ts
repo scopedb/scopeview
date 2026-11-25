@@ -4,21 +4,14 @@ import { chartColumnLabel } from './dataset.js';
 import { prepareScatterData } from './prepared.js';
 import { pointFillOpacity as tokenPointFillOpacity } from '../../theme/visual-tokens.js';
 
-export const layoutScatter: MetricLayout = (
-  compiled,
-  hidden,
-  width,
-  height,
-  measure,
-  axes = 'full'
-) => {
+export const layoutScatter: MetricLayout = (compiled, hidden, width, height, measure, axes) => {
   const {
     dataset,
     config: { mapping }
   } = compiled;
   if (mapping.kind !== 'scatter')
     throw new TypeError('A scatter layout requires a scatter mapping.');
-  const { model, finish, visible, quantity, miniature } = layoutContext(
+  const { model, finish, visible, quantity, miniature, compact } = layoutContext(
     compiled,
     hidden,
     width,
@@ -39,7 +32,8 @@ export const layoutScatter: MetricLayout = (
     rows.map((r) => r.y),
     height < 240 ? 3 : 5
   );
-  const r = frame(width, height, yAxis, !miniature, measure, inset, miniature);
+  const showTitles = !miniature && !compact;
+  const r = frame(width, height, yAxis, showTitles, measure, inset, miniature, showTitles, compact);
   model.rect = r;
   model.clipRect = { x: r.x - 22, y: r.y - 22, width: r.width + 44, height: r.height + 44 };
   const x = linear(xAxis.domain, [r.x, r.x + r.width]);
@@ -47,7 +41,7 @@ export const layoutScatter: MetricLayout = (
   model.xTicks = xAxis.ticks.map((value, i) => ({ position: x(value), label: xAxis.labels[i] }));
   model.yTicks = yTicks(yAxis, y);
   model.baseline = r.y + r.height;
-  if (!miniature) {
+  if (showTitles) {
     const axisTitle = (id: typeof mapping.x) => {
       const unit = compiled.displays.get(id)?.unit;
       return `${chartColumnLabel(dataset, id)}${unit ? ` (${unit})` : ''}`;

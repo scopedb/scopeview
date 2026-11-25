@@ -491,4 +491,29 @@ test('host configuration persists across documents, preserves state and rejects 
   await expect(page.locator('#configured-before-document')).toHaveAttribute('data-state', 'ready');
   await expect(page.locator('#configured-before-document header')).toBeHidden();
   await expect(page.locator('#configured-before-document .legend')).toBeHidden();
+
+  await page.evaluate(() => {
+    const chart = document.createElement('scope-chart');
+    chart.id = 'sparkline-domain';
+    chart.style.setProperty('--scope-chart-height', '44px');
+    chart.configure({ axes: 'minimal' });
+    const base = document.querySelector<ScopeChartElement>('#activity')!.document!;
+    chart.document = {
+      ...base,
+      options: { ...base.options, presentation: 'sparkline' }
+    };
+    document.querySelector('main')!.append(chart);
+  });
+  await expect(page.locator('#sparkline-domain')).toHaveAttribute('data-state', 'ready');
+  await expect(page.locator('#sparkline-domain header')).toBeHidden();
+  await expect(page.locator('#sparkline-domain .legend')).toBeHidden();
+  const sparklineDiffers = await page.evaluate(async () => {
+    const chart = document.querySelector<ScopeChartElement>('#sparkline-domain')!;
+    const canvas = chart.shadowRoot!.querySelector('canvas')!;
+    const withDomain = canvas.toDataURL();
+    chart.configure({ axes: 'none' });
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    return withDomain !== canvas.toDataURL();
+  });
+  expect(sparklineDiffers).toBe(true);
 });
