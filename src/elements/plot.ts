@@ -8,7 +8,7 @@ import { ChartRuntime } from '../runtime/chart-runtime.js';
 export class Plot extends ChartRuntime implements ChartRenderer {
   private compiled: CompiledChart | null = null;
   private hiddenKeys = '';
-  private axes: AxisMode = 'full';
+  private axes: AxisMode | undefined;
   constructor(
     canvas: HTMLElement,
     decoration: HTMLElement,
@@ -17,7 +17,7 @@ export class Plot extends ChartRuntime implements ChartRenderer {
   ) {
     super(canvas, decoration, { inspection: inspect, keyboard: false, invalidate });
   }
-  update(compiled: CompiledChart, hidden: Set<string>, axes: AxisMode = 'full') {
+  update(compiled: CompiledChart, hidden: Set<string>, axes?: AxisMode) {
     const keys = JSON.stringify([...hidden].sort());
     const reason =
       compiled === this.compiled && keys === this.hiddenKeys && axes === this.axes

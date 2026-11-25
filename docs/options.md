@@ -24,7 +24,7 @@ Pass these settings to a Web Component's `configure(ui)` method. They are not do
 
 | Option             | Accepted values and default                                      | Behavior                                                                                                                                                     |
 | ------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `axes`             | `'full'`, `'minimal'` or `'none'`; default `'full'`              | Selects component ruler density.                                                                                                                             |
+| `axes`             | `'full'`, `'minimal'` or `'none'`; default `'full'` (`'none'` for sparklines) | Selects component ruler density. On metric sparklines, explicit `'minimal'` adds a compact 2-endpoint y-axis value domain with no x-axis, gridlines or baseline. |
 | `tooltip`          | Boolean; default `true`                                          | Shows built-in floating readings. `false` keeps source callbacks/events available.                                                                           |
 | `header`           | Boolean; default `true`                                          | Components show a supplied title/description. Empty captions and metric sparkline captions remain hidden. Headless hosts supply their own captions.          |
 | `dataTable`        | Boolean; default `true`                                          | Components can open the raw data table. `false` removes that action.                                                                                         |
@@ -70,9 +70,9 @@ These fields belong to metric documents, in addition to the shared options.
 | Value       | Treatment                                                                                                                                                                  |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `full`      | Standard metric framing; full rulers when the host requests full axes.                                                                                                     |
-| `sparkline` | Miniature framing without rulers or optional data labels. Metric components also hide captions and legends. Plot input is disabled unless `interactive: true` is supplied. |
+| `sparkline` | Miniature framing without rulers or optional data labels by default. Metric components also hide captions and legends, and plot input is disabled unless `interactive: true` is supplied. Pass `axes: 'minimal'` on the component (`configure({ axes: 'minimal' })`) or headless view (`createChartView(host, { axes: 'minimal' })`) to display a compact 2-endpoint y-axis value domain without an x-axis, gridlines or baseline. |
 
-The headless factory's `axes: 'minimal'` default is independent of `presentation`. Use its `axes: 'full'` or `'none'` option when the surrounding application needs a different ruler treatment. Presentation never introduces curves, steps or inferred samples.
+The headless factory defaults `axes` to `'minimal'` for `full` charts and `'none'` for `sparkline` charts. Pass `axes: 'full'`, `'minimal'` or `'none'` explicitly when the surrounding application needs a different ruler treatment. Presentation never introduces curves, steps or inferred samples.
 
 ### Color assignment
 

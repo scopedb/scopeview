@@ -359,3 +359,35 @@ test('factory, runtime and scalar configuration reject unknown keys without moun
     'options.paint'
   ]);
 });
+
+test('headless sparklines stay borderless by default and opt into y value domain with axes minimal', async ({
+  page
+}) => {
+  const result = await page.evaluate(async (baseSource) => {
+    const entry = '/src/chart.ts';
+    const { createChart } = await import(entry);
+    const sparklineDoc = {
+      ...baseSource,
+      options: { presentation: 'sparkline' as const }
+    };
+    const render = async (axes?: 'none' | 'minimal') => {
+      const host = document.createElement('div');
+      host.style.cssText = 'width:240px;--scope-chart-height:44px';
+      document.body.append(host);
+      const chart = createChart(host, sparklineDoc, axes ? { axes } : {});
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const url = host
+        .querySelector('.scopeview-view')!
+        .shadowRoot!.querySelector('canvas')!
+        .toDataURL();
+      chart.dispose();
+      host.remove();
+      return url;
+    };
+    const omitted = await render();
+    const none = await render('none');
+    const minimal = await render('minimal');
+    return { matchesNone: omitted === none, minimalDiffers: omitted !== minimal };
+  }, source);
+  expect(result).toEqual({ matchesNone: true, minimalDiffers: true });
+});
