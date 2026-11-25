@@ -491,4 +491,25 @@ test('host configuration persists across documents, preserves state and rejects 
   await expect(page.locator('#configured-before-document')).toHaveAttribute('data-state', 'ready');
   await expect(page.locator('#configured-before-document header')).toBeHidden();
   await expect(page.locator('#configured-before-document .legend')).toBeHidden();
+
+  await page.evaluate(() => {
+    const chart = document.createElement('scope-chart');
+    chart.id = 'mini-chart';
+    chart.style.setProperty('--scope-chart-height', 'initial');
+    const base = document.querySelector<ScopeChartElement>('#activity')!.document!;
+    chart.document = {
+      ...base,
+      options: { ...base.options, presentation: 'mini' }
+    };
+    document.querySelector('main')!.append(chart);
+  });
+  await expect(page.locator('#mini-chart')).toHaveAttribute('data-state', 'ready');
+  await expect(page.locator('#mini-chart')).toHaveAttribute('data-presentation', 'mini');
+  await expect(page.locator('#mini-chart header')).toBeHidden();
+  await expect(page.locator('#mini-chart .legend')).toBeHidden();
+  await expect(page.locator('#mini-chart .toolbar')).toBeHidden();
+  const miniHeight = await page
+    .locator('#mini-chart .viewport')
+    .evaluate((el) => el.getBoundingClientRect().height);
+  expect(miniHeight).toBe(56);
 });

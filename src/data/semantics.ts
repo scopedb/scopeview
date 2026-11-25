@@ -2,7 +2,7 @@ import type { ChartFieldRef } from './result.js';
 import type { TimeWindow } from './time.js';
 import { formatInteger } from './integer-format.js';
 
-export type ChartPresentation = 'full' | 'sparkline';
+export type ChartPresentation = 'full' | 'mini' | 'sparkline';
 /** Execution facts travel with a result, independently of a saved chart spec. */
 export type TimeSemantics<F = ChartFieldRef> =
   | { kind: 'points'; field: F; window?: TimeWindow }

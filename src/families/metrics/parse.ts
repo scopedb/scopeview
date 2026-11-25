@@ -210,7 +210,7 @@ export function parseChartDocument(value: unknown): ChartDocument {
     if (options.presentation !== undefined)
       result.options.presentation = choice(
         options.presentation,
-        ['full', 'sparkline'],
+        ['full', 'mini', 'sparkline'],
         'options.presentation'
       );
     if (options.labels !== undefined)

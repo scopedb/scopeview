@@ -26,7 +26,7 @@ Pass these settings to a Web Component's `configure(ui)` method. They are not do
 | ------------------ | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `axes`             | `'full'`, `'minimal'` or `'none'`; default `'full'`              | Selects component ruler density.                                                                                                                             |
 | `tooltip`          | Boolean; default `true`                                          | Shows built-in floating readings. `false` keeps source callbacks/events available.                                                                           |
-| `header`           | Boolean; default `true`                                          | Components show a supplied title/description. Empty captions and metric sparkline captions remain hidden. Headless hosts supply their own captions.          |
+| `header`           | Boolean; default `true`                                          | Components show a supplied title/description. Empty captions and metric `mini` / `sparkline` captions remain hidden. Headless hosts supply their own captions. |
 | `dataTable`        | Boolean; default `true`                                          | Components can open the raw data table. `false` removes that action.                                                                                         |
 | `toolbar`          | Boolean or toolbar object; default enabled                       | Components show their toolbar when chart input is enabled. `false` hides built-in and slotted controls. See [toolbar configuration](#toolbar-configuration). |
 | `dismissOnOutside` | Boolean; default `true`                                          | Components dismiss readings on outside pointer/focus input. `false` retains the reading. Headless views always dismiss on outside input.                     |
@@ -47,7 +47,7 @@ Metric actions are `inspect`, `toggle-data` and `show-all`. Trace/profile action
 
 ### Legends
 
-`legend: true` requests series names; `false` hides the component legend. With no explicit setting, components show a names-only legend when there are at least two series, except in sparkline or non-interactive views. Aggregate numeric values have no plot legend. Sparkline and non-interactive component views keep the legend hidden even when requested.
+`legend: true` requests series names; `false` hides the component legend. With no explicit setting, components show a names-only legend when there are at least two series, except in `mini`, `sparkline`, or non-interactive views. Aggregate numeric values have no plot legend. `mini`, `sparkline`, and non-interactive component views keep the legend hidden even when requested.
 
 For numeric summaries, use `{ columns: ['last', 'avg', 'sum', 'min', 'max'] }` with any 1–5 unique names in the desired column order. This form requires axis or distribution encoding and can show a single series. Arithmetic excludes NULL values. Configure these columns on the component; they are not accepted inside `document.options`.
 
@@ -58,7 +58,7 @@ These fields belong to metric documents, in addition to the shared options.
 | Option          | Accepted values and default                                                   | Behavior                                                                                                                                                                                                    |
 | --------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `labels`        | `'auto'` or `'none'`; omission uses the host's automatic policy               | `auto` fits optional labels for applicable families; `none` hides them. With no explicit value, small single-series headless category bars may show direct values; other optional labels are not forced on. |
-| `presentation`  | `'full'` or `'sparkline'`; default `'full'`                                   | Selects the metric layout treatment. See [presentation](#presentation).                                                                                                                                     |
+| `presentation`  | `'full'`, `'mini'`, or `'sparkline'`; default `'full'`                        | Selects the metric layout treatment. See [presentation](#presentation).                                                                                                                                     |
 | `orientation`   | `'vertical'` or `'horizontal'`; default `'vertical'`                          | Horizontal bars require categorical `x`, one numeric `y` field and no series breakdown.                                                                                                                     |
 | `stack`         | Boolean; bars stack unless `false`                                            | `false` groups bars side by side or overlays areas. Area stacking requires one `y` field; multiple `y` fields remain overlaid. Line connections stay unchanged.                                             |
 | `colors`        | A record from series/category name to a supported color; default no overrides | Accepts hex colors with 3, 4, 6 or 8 digits and palette tokens wrapped in `var(...)`. See [color assignment](#color-assignment).                                                                            |
@@ -69,8 +69,9 @@ These fields belong to metric documents, in addition to the shared options.
 
 | Value       | Treatment                                                                                                                                                                  |
 | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `full`      | Standard metric framing; full rulers when the host requests full axes.                                                                                                     |
-| `sparkline` | Miniature framing without rulers or optional data labels. Metric components also hide captions and legends. Plot input is disabled unless `interactive: true` is supplied. |
+| `full`      | Standard metric framing; full rulers when the host requests full axes.                                                                                                                                      |
+| `mini`      | Compact preview framing (default `56px` component height) with a minimal 2-tick value scale and baseline, no x-axis ticks/captions, gridlines, or optional data labels. Metric components hide captions, legends, and toolbars. Plot input is disabled unless `interactive: true` is supplied. |
+| `sparkline` | Miniature framing without rulers or optional data labels. Metric components also hide captions and legends. Plot input is disabled unless `interactive: true` is supplied.                                  |
 
 The headless factory's `axes: 'minimal'` default is independent of `presentation`. Use its `axes: 'full'` or `'none'` option when the surrounding application needs a different ruler treatment. Presentation never introduces curves, steps or inferred samples.
 

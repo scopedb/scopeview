@@ -46,6 +46,9 @@ header {
   height: var(--scope-chart-height, 300px);
   min-height: 0;
 }
+:host([data-presentation="mini"]) .viewport {
+  height: var(--scope-chart-height, 56px);
+}
 .canvas,
 .decoration,
 .metrics,

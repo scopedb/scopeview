@@ -18,7 +18,7 @@ export const layoutScatter: MetricLayout = (
   } = compiled;
   if (mapping.kind !== 'scatter')
     throw new TypeError('A scatter layout requires a scatter mapping.');
-  const { model, finish, visible, quantity, miniature } = layoutContext(
+  const { model, finish, visible, quantity, mini, miniature } = layoutContext(
     compiled,
     hidden,
     width,
@@ -29,17 +29,18 @@ export const layoutScatter: MetricLayout = (
   model.emphasis = 'point';
   const rows = prepareScatterData(dataset, mapping).filter((row) => !hidden.has(row.series));
   const maximum = extent(rows.map((row) => row.size ?? 0))[1];
-  const maxRadius = width < 480 ? 14 : 20;
-  const inset = mapping.size ? maxRadius : 5;
+  const maxRadius = mini ? 6 : width < 480 ? 14 : 20,
+    inset = mapping.size ? maxRadius : 5,
+    showAxes = !miniature && !mini;
   const xAxis = numericAxis(
     rows.map((r) => r.x),
     width < 480 ? 3 : 5
   );
   const yAxis = numericAxis(
     rows.map((r) => r.y),
-    height < 240 ? 3 : 5
+    mini ? 2 : height < 240 ? 3 : 5
   );
-  const r = frame(width, height, yAxis, !miniature, measure, inset, miniature);
+  const r = frame(width, height, yAxis, showAxes, measure, inset, miniature, showAxes, mini);
   model.rect = r;
   model.clipRect = { x: r.x - 22, y: r.y - 22, width: r.width + 44, height: r.height + 44 };
   const x = linear(xAxis.domain, [r.x, r.x + r.width]);
@@ -47,7 +48,7 @@ export const layoutScatter: MetricLayout = (
   model.xTicks = xAxis.ticks.map((value, i) => ({ position: x(value), label: xAxis.labels[i] }));
   model.yTicks = yTicks(yAxis, y);
   model.baseline = r.y + r.height;
-  if (!miniature) {
+  if (showAxes) {
     const axisTitle = (id: typeof mapping.x) => {
       const unit = compiled.displays.get(id)?.unit;
       return `${chartColumnLabel(dataset, id)}${unit ? ` (${unit})` : ''}`;

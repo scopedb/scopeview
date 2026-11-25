@@ -221,6 +221,43 @@ describe('source precision and presentation', () => {
     expect(model.interactive).toBe(false);
     expect(model.provenance).toEqual(doc.semantics.provenance);
   });
+  it('supports mini presentation with compact 2-tick value scale, no x-axis ticks, and opt-in interactivity', () => {
+    const barDoc = buckets([
+      [new Date(start).toISOString(), '12'],
+      [new Date(start + hour).toISOString(), '48']
+    ]);
+    barDoc.options = { presentation: 'mini' };
+    const miniBar = scene(barDoc, 48);
+    expect(miniBar.axisStyle).toBe('minimal');
+    expect(miniBar.xTicks).toEqual([]);
+    expect(miniBar.xTitle).toBeUndefined();
+    expect(miniBar.yTitle).toBeUndefined();
+    expect(miniBar.yTicks.length).toBe(2);
+    expect(miniBar.baseline).toBeDefined();
+    expect(miniBar.rect!.y).toBe(4);
+    expect(miniBar.rect!.height).toBe(40);
+    expect(miniBar.interactive).toBe(false);
+
+    const optIn = scene({ ...barDoc, options: { presentation: 'mini', interactive: true } }, 48);
+    expect(optIn.interactive).toBe(true);
+
+    const noAxes = layoutChart(compileChart(barDoc), new Set(), 240, 48, measure, 'none');
+    expect(noAxes.yTicks).toEqual([]);
+    expect(noAxes.baseline).toBeUndefined();
+    expect(noAxes.rect!.height).toBe(46);
+
+    const lineDoc = buckets([
+      [new Date(start).toISOString(), '320'],
+      [new Date(start + hour).toISOString(), '345']
+    ]);
+    lineDoc.spec.visualization = 'line';
+    lineDoc.options = { presentation: 'mini' };
+    const miniLine = scene(lineDoc, 48);
+    expect(miniLine.axisStyle).toBe('minimal');
+    expect(miniLine.xTicks).toEqual([]);
+    expect(miniLine.yTicks.length).toBe(2);
+    expect(miniLine.interactive).toBe(false);
+  });
   it('applies the same exact display policy to donut and scatter inspection', () => {
     const doc = categories([
       ['API', '9007199254740993'],

@@ -55,7 +55,8 @@ export function categoryContext(
   const column = chartColumn(dataset, metric)!;
   const display = compiled.displays.get(metric);
   const items = categoryData(compiled).filter((item) => !hidden.has(item.label));
-  const staticView = compiled.document.options?.presentation === 'sparkline';
+  const presentation = compiled.document.options?.presentation;
+  const staticView = presentation === 'sparkline' || presentation === 'mini';
   const ranked = config.displayType !== 'treemap';
   const maximum = Math.max(0, ...items.map((item) => item.value ?? 0));
   const scaledTotal = items.reduce(

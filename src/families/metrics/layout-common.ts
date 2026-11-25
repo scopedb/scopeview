@@ -34,20 +34,24 @@ export function frame(
   measure: MeasureText,
   inset = 0,
   miniature = false,
-  caption = full
+  caption = full,
+  mini = false
 ): PlotRect {
   if (miniature)
     return { x: 1, y: 1, width: Math.max(1, width - 2), height: Math.max(1, height - 2) };
   const labelWidth = Math.min(width * 0.25, Math.max(...axis.labels.map(measure)));
-  const x = Math.max(full ? 30 : 8, inset + 8) + labelWidth + 8;
-  const y = 16 + inset;
+  const pad = mini ? 4 : 16,
+    x = Math.max(full ? 30 : 8, inset + 8) + labelWidth + 8,
+    y = pad + inset;
   return {
     x,
     y,
-    width: Math.max(1, width - x - 16 - inset),
+    width: Math.max(1, width - x - pad - inset),
     height: Math.max(
       1,
-      height - y - (caption ? 56 : 30) - Math.max(0, (measure.fontSize ?? 11) - 11) * 2
+      mini
+        ? height - y * 2
+        : height - y - (caption ? 56 : 30) - Math.max(0, (measure.fontSize ?? 11) - 11) * 2
     )
   };
 }
@@ -86,8 +90,9 @@ export function layoutContext(
   const { mapping, displayType } = config;
   const presentation = compiled.document.options?.presentation ?? 'full';
   const full = presentation === 'full' && axes === 'full';
+  const mini = presentation === 'mini' && axes !== 'none';
   const miniature = presentation === 'sparkline' || axes === 'none';
-  const report = axes === 'minimal' && !miniature;
+  const report = axes === 'minimal' && !miniature && !mini;
   const directLabels =
     report &&
     displayType === 'bar' &&
@@ -97,6 +102,7 @@ export function layoutContext(
   const labels: DataLabel[] = [];
   const showLabels =
     !miniature &&
+    !mini &&
     (compiled.document.options?.labels === 'auto' ||
       (compiled.document.options?.labels === undefined && directLabels));
   const finish = (scene: ChartScene) => {
@@ -111,10 +117,14 @@ export function layoutContext(
         { x: 4, y: 4, width: width - 8, height: height - 8 },
         measure
       );
-    if (report) {
+    if (report || mini) {
       scene.axisStyle = 'minimal';
-      scene.yTicks = sparseTicks(scene.yTicks, tokenReportAxisTicks, scene.baseline);
-      if (compiled.axisModel?.kind === 'time-series' || mapping.kind === 'scatter')
+      scene.yTicks = sparseTicks(scene.yTicks, mini ? 2 : tokenReportAxisTicks, scene.baseline);
+      if (mini) {
+        scene.xTicks = [];
+        delete scene.xTitle;
+        delete scene.yTitle;
+      } else if (compiled.axisModel?.kind === 'time-series' || mapping.kind === 'scatter')
         scene.xTicks = sparseTicks(scene.xTicks, tokenReportAxisTicks);
       // Only omit the value ruler when every source has a visible exact label.
       if (directLabels && scene.labels?.length === scene.interactions.length && scene.labels.length)
@@ -139,10 +149,12 @@ export function layoutContext(
     interactions: [],
     interactionByKey: new Map(),
     ariaLabel: chartAriaLabel(dataset, config),
-    interactive: compiled.document.options?.interactive ?? presentation !== 'sparkline',
+    interactive:
+      compiled.document.options?.interactive ??
+      (presentation !== 'sparkline' && presentation !== 'mini'),
     provenance: compiled.document.semantics?.provenance
   };
-  return { model, finish, visible, quantity, labels, showLabels, full, miniature, report };
+  return { model, finish, visible, quantity, labels, showLabels, full, mini, miniature, report };
 }
 
 export const layoutEmpty: MetricLayout = (...args) => layoutContext(...args).model;

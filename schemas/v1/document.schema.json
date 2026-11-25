@@ -169,7 +169,7 @@
           "enum": ["auto", "consistent", "ranked", "semantic"]
         },
         "presentation": {
-          "enum": ["full", "sparkline"]
+          "enum": ["full", "mini", "sparkline"]
         },
         "labels": {
           "enum": ["auto", "none"]

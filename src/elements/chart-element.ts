@@ -95,12 +95,14 @@ export class ScopeChartElement extends HTMLElement {
   #compiled: CompiledChart | null = null;
   #renderedCompiled: CompiledChart | null = null;
   #ui: MetricComponentOptions = {};
+  get #compact() {
+    const p = this.#compiled?.document.options?.presentation;
+    return p === 'sparkline' || p === 'mini';
+  }
   get #options() {
     return {
       ...this.#ui,
-      interactive:
-        this.#compiled?.document.options?.interactive ??
-        this.#compiled?.document.options?.presentation !== 'sparkline'
+      interactive: this.#compiled?.document.options?.interactive ?? !this.#compact
     };
   }
   #error: string | null = null;
@@ -498,8 +500,10 @@ export class ScopeChartElement extends HTMLElement {
   }
   async #render(revision: number) {
     const compiled = this.#compiled;
-    const miniature = compiled?.document.options?.presentation === 'sparkline';
-    const interactive = compiled?.document.options?.interactive ?? !miniature;
+    const presentation = compiled?.document.options?.presentation ?? 'full';
+    const compact = presentation === 'sparkline' || presentation === 'mini';
+    const interactive = compiled?.document.options?.interactive ?? !compact;
+    this.setAttribute('data-presentation', presentation);
     renderToolbar(this.#root, this.#options, metricControls, !interactive);
     this.#el('.root').setAttribute('aria-hidden', String(!interactive));
     this.#el('.viewport').tabIndex =
@@ -509,7 +513,7 @@ export class ScopeChartElement extends HTMLElement {
     this.#el('.canvas').style.pointerEvents = interactive ? '' : 'none';
     const title = compiled?.document.title ?? '',
       description = compiled?.document.description ?? '';
-    this.#el('header').hidden = miniature || this.#ui.header === false || (!title && !description);
+    this.#el('header').hidden = compact || this.#ui.header === false || (!title && !description);
     this.#el('h2').textContent = title;
     this.#el('h2').hidden = !title;
     this.#el('.description').textContent = description;
@@ -636,7 +640,7 @@ export class ScopeChartElement extends HTMLElement {
     legend.hidden =
       !compiled ||
       this.#ui.legend === false ||
-      compiled.document.options?.presentation === 'sparkline' ||
+      this.#compact ||
       compiled.document.options?.interactive === false ||
       compiled.series.length < (columns.length ? 1 : 2) ||
       compiled.config.mapping.kind === 'aggregate';
